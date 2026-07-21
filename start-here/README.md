@@ -5,7 +5,7 @@ and don't know where to start. It removes decisions instead of adding features:
 answer a few friendly questions, get one safe, personalized daily target
 explained in plain English.
 
-**Current status: Phase 3** —
+**Current status: v1 core complete (Phases 1–4)** —
 - Phase 1: auth, one-question-per-screen onboarding, server-side macro math
   with safety guardrails, and the plain-language summary screen.
 - Phase 2: the food data layer — verified seed food table, USDA FoodData
@@ -21,23 +21,48 @@ explained in plain English.
 
 ## Stack
 
-- [Next.js](https://nextjs.org) (App Router) + TypeScript + Tailwind — mobile-first responsive web app
+- [Next.js](https://nextjs.org) (App Router) + TypeScript + Tailwind — mobile-first
+  responsive web app, installable as a PWA ("Add to Home Screen")
 - [Auth.js](https://authjs.dev) (NextAuth v5) — email + password sessions
-- [Prisma](https://prisma.io) + SQLite — local-first for this phase; the schema
-  ports directly to Postgres/Supabase later
+- [Prisma](https://prisma.io) + PostgreSQL (Supabase/Neon free tiers work great;
+  any Postgres does)
 - [Vitest](https://vitest.dev) — unit tests for the parts that must not be
   wrong (macro math, safety clamps)
 
 ## Running it
 
+You need a PostgreSQL database. Easiest local option on Ubuntu/Debian:
+`sudo apt install postgresql && sudo service postgresql start`, then create a
+user + database and put the connection string in `.env`. A free
+[Supabase](https://supabase.com) or [Neon](https://neon.tech) database works
+just as well (use its connection string instead).
+
 ```bash
 cd start-here
 npm install            # also runs `prisma generate`
-cp .env.example .env   # then set AUTH_SECRET (openssl rand -base64 32)
-npx prisma migrate dev # creates prisma/dev.db and applies migrations
+cp .env.example .env   # set DATABASE_URL and AUTH_SECRET (openssl rand -base64 32)
+npx prisma migrate dev # applies migrations
 npm run db:seed        # loads the verified seed food table
 npm run dev            # http://localhost:3000
 ```
+
+## Deploying (Vercel + Supabase)
+
+1. **Database**: create a free [Supabase](https://supabase.com) project →
+   Project Settings → Database → copy the **connection string** (URI). Use the
+   "Transaction" pooler string for serverless, and keep `?sslmode=require`.
+2. **Vercel**: import the GitHub repo at [vercel.com/new](https://vercel.com/new).
+   Set **Root Directory** to `start-here`. Vercel auto-detects Next.js and
+   uses the `vercel-build` script (which runs `prisma migrate deploy`).
+3. **Environment variables** (Vercel → Project → Settings → Environment
+   Variables): `DATABASE_URL` (from step 1), `AUTH_SECRET`
+   (`openssl rand -base64 32`), and optionally `ANTHROPIC_API_KEY` +
+   `MEAL_MODEL` for LLM meal generation and `FDC_API_KEY` for live USDA
+   lookups.
+4. **Seed the food table** (once, from your machine):
+   `DATABASE_URL="<supabase url>" npm run db:seed`
+5. Deploy. Open the URL on your phone → share menu → **Add to Home Screen**
+   and it installs like an app (icon, standalone window).
 
 Other commands:
 
@@ -51,7 +76,7 @@ npm run build && npm start   # production build
 
 | Variable       | What it is                                                        |
 | -------------- | ----------------------------------------------------------------- |
-| `DATABASE_URL` | SQLite file path, relative to `prisma/` (e.g. `file:./dev.db`)    |
+| `DATABASE_URL` | PostgreSQL connection string (Supabase/Neon/local)              |
 | `AUTH_SECRET`  | Session encryption secret — generate with `openssl rand -base64 32` |
 | `FDC_API_KEY`  | Optional USDA FoodData Central key ([free signup](https://fdc.nal.usda.gov/api-key-signup)); falls back to `DEMO_KEY` + the seed table |
 | `ANTHROPIC_API_KEY` | Optional Anthropic key for LLM meal generation; without it the engine uses its verified template library |

@@ -5,11 +5,20 @@ export const metadata: Metadata = {
   title: "Start Here — fitness & nutrition, minus the overwhelm",
   description:
     "A friendly starting point for eating better and getting in shape. No jargon, no blank dashboards.",
+  appleWebApp: {
+    capable: true,
+    title: "Start Here",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#059669",
 };
 
 export default function RootLayout({

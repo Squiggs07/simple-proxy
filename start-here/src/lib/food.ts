@@ -91,7 +91,7 @@ export async function findFood(name: string): Promise<Food | null> {
   if (!query) return null;
 
   const local = await prisma.food.findMany({
-    where: { name: { contains: query } },
+    where: { name: { contains: query, mode: "insensitive" } },
     take: 25,
   });
   if (local.length > 0) return rankFoodMatches(query, local)[0];
