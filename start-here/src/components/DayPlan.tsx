@@ -196,6 +196,23 @@ export function DayPlan({
                 <span className="mt-1 text-stone-300">{open ? "▴" : "▾"}</span>
               </button>
 
+              <div className="px-4 pb-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void mealAction(meal.id, "eaten", { eaten: !meal.eaten })
+                  }
+                  className={`w-full rounded-xl border-2 px-3 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                    meal.eaten
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                      : "border-stone-200 text-stone-500 hover:border-stone-300"
+                  }`}
+                >
+                  {meal.eaten ? "✓ Eaten — nice!" : "I ate this"}
+                </button>
+              </div>
+
               {open && (
                 <div className="border-t border-stone-100 px-4 pb-4">
                   {meal.description && (
@@ -290,9 +307,12 @@ export function DayPlan({
         Every number here is computed from verified food data — never guessed.
       </p>
 
-      <div className="mt-6 text-center">
+      <div className="mt-6 flex items-center justify-center gap-6">
         <Link href="/summary" className="text-sm font-medium text-emerald-700">
-          ← Back to my targets
+          ← My targets
+        </Link>
+        <Link href="/progress" className="text-sm font-medium text-emerald-700">
+          My progress →
         </Link>
       </div>
     </div>

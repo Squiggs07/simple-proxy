@@ -17,6 +17,7 @@ export interface MealDto {
   fatG: number;
   portionFactor: number;
   source: string;
+  eaten: boolean;
 }
 
 export function serializeMeal(meal: Meal): MealDto {
@@ -34,5 +35,6 @@ export function serializeMeal(meal: Meal): MealDto {
     fatG: meal.fatG,
     portionFactor: meal.portionFactor,
     source: meal.source,
+    eaten: Boolean(meal.eatenAt),
   };
 }

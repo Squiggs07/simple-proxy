@@ -15,6 +15,7 @@ model User {
   profile      Profile?
   macroTargets MacroTarget[]
   mealPlans    MealPlan[]
+  weighIns     WeighIn[]
 }
 
 model Profile {
@@ -86,7 +87,21 @@ model Meal {
   portionFactor Float    @default(1)
   source        String // "llm" | "template"
   priority      String
-  createdAt     DateTime @default(now())
+  // Set when the user marks the meal as eaten (the Phase 4 habit loop).
+  eatenAt       DateTime?
+  createdAt     DateTime  @default(now())
+}
+
+model WeighIn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Local calendar date of the weigh-in, YYYY-MM-DD. One per day.
+  date      String
+  weightKg  Float
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
 }
 
 model MacroTarget {

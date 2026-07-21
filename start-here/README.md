@@ -14,6 +14,10 @@ explained in plain English.
   targets, with swap and portion adjustment. The LLM proposes; the backend
   verifies every ingredient against real food data and computes the numbers
   itself.
+- Phase 4: the progress & habit loop — one-tap "I ate this" logging, weigh-ins
+  with a smoothed trend (EWMA — never react to single readings), a weekly
+  outlook, monthly summaries, and gentle target recomputation once the trend
+  weight genuinely moves (≥1 kg).
 
 ## Stack
 
@@ -79,6 +83,26 @@ The core loop from spec §4a/§6, in `src/lib/meal-engine/`:
 The user gets a day view (`/plan`) with meal cards, per-ingredient gram and
 macro detail, "swap this meal", and a ± portion adjuster. Slot budgets are
 25/35/30/10% of the day across breakfast/lunch/dinner/snack.
+
+## The progress & habit loop (Phase 4)
+
+Kept deliberately minimal — one glance answers "am I on track?":
+
+- **Logging**: one tap marks a meal eaten; weigh-ins take one number. No
+  food search, no barcode scanning, no manual entry grind.
+- **Trend, not readings** (`src/lib/progress.ts`, pure + tested): daily scale
+  weight swings up to ~2 kg from water and digestion, so everything runs on
+  an exponential-moving-average trend weight (the Happy Scale / Libra
+  approach). The chart shows the trend as the data and raw readings as
+  faded context dots.
+- **Weekly outlook**: days-logged dots (never a breakable "streak"), days
+  where most of the plan was eaten, and the week's trend change.
+- **Monthly summaries**: weight change, days logged, and meals-eaten rate
+  per month.
+- **Gentle recomputation**: when the trend weight moves ≥1 kg from the
+  profile weight, targets recompute automatically (through the same
+  safety-clamped math) and the user gets a friendly note — never a
+  reaction to a single weigh-in.
 
 ## The food data layer (Phase 2)
 

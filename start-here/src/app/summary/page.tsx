@@ -177,6 +177,9 @@ export default async function SummaryPage() {
         </Link>
 
         <div className="mt-8 flex flex-col items-center gap-4">
+          <Link href="/progress" className="text-sm font-medium text-emerald-700">
+            My progress
+          </Link>
           <Link
             href="/onboarding"
             className="text-sm font-medium text-emerald-700"
