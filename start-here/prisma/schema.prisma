@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  profile      Profile?
+  macroTargets MacroTarget[]
+}
+
+model Profile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal          String
+  sexAtBirth    String
+  age           Int
+  heightCm      Float
+  weightKg      Float
+  activityLevel String
+  // Comma-separated dietary exclusions/preferences (free text + presets).
+  exclusions    String   @default("")
+  mealPriority  String   @default("balanced")
+  units         String   @default("imperial")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model MacroTarget {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calories            Int
+  proteinG            Int
+  carbsG              Int
+  fatG                Int
+  maintenanceCalories Int
+  planType            String
+  // JSON array of safety flags raised during computation.
+  flags               String   @default("[]")
+  // JSON snapshot of the inputs used, so targets can be recomputed later.
+  inputs              String
+  computedAt          DateTime @default(now())
+}
