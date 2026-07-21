@@ -169,18 +169,12 @@ export default async function SummaryPage() {
           </div>
         </details>
 
-        <div className="mt-8 rounded-2xl border-2 border-dashed border-stone-200 p-5 text-center">
-          <p className="text-2xl" aria-hidden>
-            🍳
-          </p>
-          <p className="mt-2 font-semibold text-stone-700">
-            Next up: your daily meals
-          </p>
-          <p className="mt-1 text-sm text-stone-500">
-            Soon, this is where you&apos;ll tap one button and see a full day of
-            meals that fit these numbers. It&apos;s on the way.
-          </p>
-        </div>
+        <Link
+          href="/plan"
+          className="mt-8 block rounded-xl bg-emerald-600 px-6 py-4 text-center text-lg font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+        >
+          Show me today&apos;s meals
+        </Link>
 
         <div className="mt-8 flex flex-col items-center gap-4">
           <Link

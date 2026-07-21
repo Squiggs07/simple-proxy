@@ -14,6 +14,7 @@ model User {
   createdAt    DateTime      @default(now())
   profile      Profile?
   macroTargets MacroTarget[]
+  mealPlans    MealPlan[]
 }
 
 model Profile {
@@ -50,6 +51,42 @@ model Food {
   createdAt      DateTime @default(now())
 
   @@index([name])
+}
+
+model MealPlan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Local calendar date the plan is for, as YYYY-MM-DD.
+  date      String
+  meals     Meal[]
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+}
+
+model Meal {
+  id            String   @id @default(cuid())
+  planId        String
+  plan          MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  slot          String // breakfast | lunch | dinner | snack
+  title         String
+  description   String   @default("")
+  whyThisFits   String   @default("")
+  // JSON string[] of simple preparation steps.
+  steps         String   @default("[]")
+  // JSON array of {foodId, name, grams, note?} — resolved, verified ingredients.
+  ingredients   String
+  kcal          Int
+  proteinG      Float
+  carbsG        Float
+  fatG          Float
+  // The kcal budget this meal was generated against, pre portion adjustments.
+  budgetKcal    Int
+  portionFactor Float    @default(1)
+  source        String // "llm" | "template"
+  priority      String
+  createdAt     DateTime @default(now())
 }
 
 model MacroTarget {

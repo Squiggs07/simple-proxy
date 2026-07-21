@@ -5,11 +5,15 @@ and don't know where to start. It removes decisions instead of adding features:
 answer a few friendly questions, get one safe, personalized daily target
 explained in plain English.
 
-**Current status: Phase 2** — Phase 1 (auth, one-question-per-screen
-onboarding, server-side macro math with safety guardrails, summary screen)
-plus the food data layer: a verified seed food table, USDA FoodData Central
-integration with local caching, and a tested meal-macro computation function.
-The meal engine (Phase 3) is not built yet by design; see the build spec.
+**Current status: Phase 3** —
+- Phase 1: auth, one-question-per-screen onboarding, server-side macro math
+  with safety guardrails, and the plain-language summary screen.
+- Phase 2: the food data layer — verified seed food table, USDA FoodData
+  Central integration with local caching, tested meal-macro computation.
+- Phase 3: the meal engine — a full day of meals that hits the user's
+  targets, with swap and portion adjustment. The LLM proposes; the backend
+  verifies every ingredient against real food data and computes the numbers
+  itself.
 
 ## Stack
 
@@ -46,9 +50,35 @@ npm run build && npm start   # production build
 | `DATABASE_URL` | SQLite file path, relative to `prisma/` (e.g. `file:./dev.db`)    |
 | `AUTH_SECRET`  | Session encryption secret — generate with `openssl rand -base64 32` |
 | `FDC_API_KEY`  | Optional USDA FoodData Central key ([free signup](https://fdc.nal.usda.gov/api-key-signup)); falls back to `DEMO_KEY` + the seed table |
+| `ANTHROPIC_API_KEY` | Optional Anthropic key for LLM meal generation; without it the engine uses its verified template library |
+| `MEAL_MODEL`   | Optional model override for meal generation (default `claude-opus-4-8`) |
 
-No secrets are ever exposed to the client. When the meal engine lands
-(Phase 3), the Anthropic API key will live server-side only, same rule.
+No secrets are ever exposed to the client — all Anthropic API calls happen
+server-side only.
+
+## The meal engine (Phase 3)
+
+The core loop from spec §4a/§6, in `src/lib/meal-engine/`:
+
+1. `prompt.ts` builds the request — the slot's calorie/protein budget, the
+   user's priority and exclusions, and hard safety rules (no very-low-calorie
+   plans, no detoxes or fasting-as-weight-loss, no food moralizing) baked
+   into the system prompt.
+2. `llm-proposer.ts` asks Claude for a meal as structured JSON (title,
+   friendly copy, steps, `{name, grams}` ingredients). Structured outputs
+   guarantee the shape; the model never supplies nutrition numbers.
+3. `generate.ts` verifies: every ingredient is resolved through
+   `findFood` (cache → seed → USDA), exclusions are re-checked mechanically,
+   quantities are scaled onto the calorie budget (`scale.ts`), and macros
+   are computed from the database. Unverifiable proposals are discarded.
+4. `templates.ts` is the deterministic fallback — a library of meals built
+   entirely from seed foods, filtered by exclusions and ranked by how well
+   their protein density matches the budget. The app works fully offline
+   and without an API key.
+
+The user gets a day view (`/plan`) with meal cards, per-ingredient gram and
+macro detail, "swap this meal", and a ± portion adjuster. Slot budgets are
+25/35/30/10% of the day across breakfast/lunch/dinner/snack.
 
 ## The food data layer (Phase 2)
 
