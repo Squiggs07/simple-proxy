@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { serializeExclusions } from "@/lib/exclusions";
 import { computeMacroTargets } from "@/lib/macros";
 
 const onboardingSchema = z.object({
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
   const userId = session.user.id;
   const profileData = {
     ...macroInputs,
-    exclusions: exclusions.join(","),
+    exclusions: serializeExclusions(exclusions),
     mealPriority,
     units,
   };

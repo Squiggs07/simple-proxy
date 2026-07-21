@@ -34,6 +34,24 @@ model Profile {
   updatedAt     DateTime @updatedAt
 }
 
+model Food {
+  id             String   @id @default(cuid())
+  // USDA FoodData Central ID when the record came from the FDC API.
+  fdcId          Int?     @unique
+  name           String   @unique
+  kcalPer100g    Float
+  proteinPer100g Float
+  carbsPer100g   Float
+  fatPer100g     Float
+  // Optional natural unit, e.g. gramsPerUnit=50, unitName="large egg".
+  gramsPerUnit   Float?
+  unitName       String?
+  source         String // "seed" | "usda"
+  createdAt      DateTime @default(now())
+
+  @@index([name])
+}
+
 model MacroTarget {
   id                  String   @id @default(cuid())
   userId              String

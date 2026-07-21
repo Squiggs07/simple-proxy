@@ -3,13 +3,22 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { rateLimit } from "@/lib/rate-limit";
 
 const signupSchema = z.object({
-  email: z.string().email("That doesn't look like an email address."),
+  email: z.email("That doesn't look like an email address."),
   password: z.string().min(8, "Passwords need at least 8 characters."),
 });
 
 export async function POST(request: Request) {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+  if (!rateLimit(`signup:${ip}`, 5, 15 * 60 * 1000)) {
+    return NextResponse.json(
+      { error: "Too many attempts — please wait a few minutes and try again." },
+      { status: 429 },
+    );
+  }
+
   const body = await request.json().catch(() => null);
   const parsed = signupSchema.safeParse(body);
   if (!parsed.success) {

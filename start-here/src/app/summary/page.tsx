@@ -100,15 +100,30 @@ export default async function SummaryPage() {
           </div>
         </div>
 
-        {isMaintenancePlan && (
+        {(isMaintenancePlan ||
+          flags.includes("underweight_no_deficit") ||
+          flags.includes("under_18_no_deficit")) && (
           <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-sm leading-relaxed text-sky-900 ring-1 ring-sky-100">
             <p className="font-semibold">A quick, caring note</p>
             <p className="mt-2">
-              Based on what you shared, eating less isn&apos;t the right move
-              for your body right now — so we&apos;ve built your plan around
-              fueling yourself well instead. For anything beyond that,
-              we&apos;d really encourage a chat with a doctor or registered
-              dietitian. They can give you guidance we can&apos;t.
+              {isMaintenancePlan ? (
+                <>
+                  Based on what you shared, eating less isn&apos;t the right
+                  move for your body right now — so we&apos;ve built your plan
+                  around fueling yourself well instead. For anything beyond
+                  that, we&apos;d really encourage a chat with a doctor or
+                  registered dietitian. They can give you guidance we
+                  can&apos;t.
+                </>
+              ) : (
+                <>
+                  Based on what you shared, we&apos;d really encourage a chat
+                  with a doctor or registered dietitian alongside this plan —
+                  they can personalize things in ways we can&apos;t, and
+                  they&apos;ll make sure your body is getting everything it
+                  needs.
+                </>
+              )}
             </p>
           </div>
         )}

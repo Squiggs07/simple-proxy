@@ -5,9 +5,11 @@ and don't know where to start. It removes decisions instead of adding features:
 answer a few friendly questions, get one safe, personalized daily target
 explained in plain English.
 
-**Current status: Phase 1** — auth, the one-question-per-screen onboarding,
-server-side macro math with safety guardrails, and the summary screen.
-Meals (Phases 2–3) are not built yet by design; see the build spec.
+**Current status: Phase 2** — Phase 1 (auth, one-question-per-screen
+onboarding, server-side macro math with safety guardrails, summary screen)
+plus the food data layer: a verified seed food table, USDA FoodData Central
+integration with local caching, and a tested meal-macro computation function.
+The meal engine (Phase 3) is not built yet by design; see the build spec.
 
 ## Stack
 
@@ -25,6 +27,7 @@ cd start-here
 npm install            # also runs `prisma generate`
 cp .env.example .env   # then set AUTH_SECRET (openssl rand -base64 32)
 npx prisma migrate dev # creates prisma/dev.db and applies migrations
+npm run db:seed        # loads the verified seed food table
 npm run dev            # http://localhost:3000
 ```
 
@@ -42,9 +45,28 @@ npm run build && npm start   # production build
 | -------------- | ----------------------------------------------------------------- |
 | `DATABASE_URL` | SQLite file path, relative to `prisma/` (e.g. `file:./dev.db`)    |
 | `AUTH_SECRET`  | Session encryption secret — generate with `openssl rand -base64 32` |
+| `FDC_API_KEY`  | Optional USDA FoodData Central key ([free signup](https://fdc.nal.usda.gov/api-key-signup)); falls back to `DEMO_KEY` + the seed table |
 
 No secrets are ever exposed to the client. When the meal engine lands
 (Phase 3), the Anthropic API key will live server-side only, same rule.
+
+## The food data layer (Phase 2)
+
+Nutritional values come from real food data, never from an LLM's guess:
+
+- `src/lib/seed-foods.ts` — ~55 common foods with verified per-100g macros
+  (USDA published values), loaded by `npm run db:seed`. The core loop works
+  entirely offline from this table.
+- `src/lib/fdc.ts` — USDA FoodData Central search client, restricted to
+  lab-analyzed Foundation/SR Legacy data. Fails soft: any API problem
+  returns no results and the seed/cache table carries on.
+- `src/lib/food.ts` — `findFood(name)` resolves local cache → seed → USDA
+  (caching hits locally), and `computeMealMacros(items)` sums real macros
+  for a list of `(food, grams)` — the pure, tested function every future
+  meal must pass through.
+
+The seed data has its own integrity test: every food's calories are checked
+against its macros (4/4/9 Atwater factors) so a typo can't slip in.
 
 ## How the target is computed
 

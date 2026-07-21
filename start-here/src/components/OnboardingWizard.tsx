@@ -3,9 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { feetInchesToCm, lbsToKg } from "@/lib/units";
+import { cmToFeetInches, feetInchesToCm, kgToLbs, lbsToKg } from "@/lib/units";
 
 type Units = "imperial" | "metric";
+
+/** Saved profile values used to prefill the wizard for returning users. */
+export interface WizardInitial {
+  goal: string;
+  sexAtBirth: string;
+  age: number;
+  heightCm: number;
+  weightKg: number;
+  activityLevel: string;
+  exclusions: string[];
+  mealPriority: string;
+  units: string;
+}
 
 const GOALS = [
   {
@@ -144,25 +157,51 @@ function ChoiceButton({
 const inputClass =
   "w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-lg outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200";
 
-export function OnboardingWizard() {
+export function OnboardingWizard({ initial }: { initial?: WizardInitial }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [goal, setGoal] = useState<Goal>("healthy_habits");
-  const [units, setUnits] = useState<Units>("imperial");
-  const [sex, setSex] = useState<"male" | "female" | null>(null);
-  const [age, setAge] = useState("30");
-  const [heightFt, setHeightFt] = useState("5");
-  const [heightIn, setHeightIn] = useState("8");
-  const [heightCm, setHeightCm] = useState("173");
-  const [weightLbs, setWeightLbs] = useState("170");
-  const [weightKg, setWeightKg] = useState("77");
-  const [activity, setActivity] = useState<Activity>("mostly_sitting");
-  const [exclusions, setExclusions] = useState<string[]>([]);
-  const [customExclusion, setCustomExclusion] = useState("");
-  const [priority, setPriority] = useState<Priority>("balanced");
+  const initialFtIn = initial ? cmToFeetInches(initial.heightCm) : null;
+  const initialPresets =
+    initial?.exclusions.filter((x) => EXCLUSION_PRESETS.includes(x)) ?? [];
+  const initialCustom =
+    initial?.exclusions.filter((x) => !EXCLUSION_PRESETS.includes(x)) ?? [];
+
+  const [goal, setGoal] = useState<Goal>((initial?.goal as Goal) ?? "healthy_habits");
+  const [units, setUnits] = useState<Units>(
+    (initial?.units as Units) ?? "imperial",
+  );
+  const [sex, setSex] = useState<"male" | "female" | null>(
+    (initial?.sexAtBirth as "male" | "female") ?? null,
+  );
+  const [age, setAge] = useState(initial ? String(initial.age) : "30");
+  const [heightFt, setHeightFt] = useState(
+    initialFtIn ? String(initialFtIn.feet) : "5",
+  );
+  const [heightIn, setHeightIn] = useState(
+    initialFtIn ? String(initialFtIn.inches) : "8",
+  );
+  const [heightCm, setHeightCm] = useState(
+    initial ? String(Math.round(initial.heightCm)) : "173",
+  );
+  const [weightLbs, setWeightLbs] = useState(
+    initial ? String(Math.round(kgToLbs(initial.weightKg))) : "170",
+  );
+  const [weightKg, setWeightKg] = useState(
+    initial ? String(Math.round(initial.weightKg)) : "77",
+  );
+  const [activity, setActivity] = useState<Activity>(
+    (initial?.activityLevel as Activity) ?? "mostly_sitting",
+  );
+  const [exclusions, setExclusions] = useState<string[]>(initialPresets);
+  const [customExclusion, setCustomExclusion] = useState(
+    initialCustom.join(", "),
+  );
+  const [priority, setPriority] = useState<Priority>(
+    (initial?.mealPriority as Priority) ?? "balanced",
+  );
 
   function next() {
     setError(null);
@@ -216,7 +255,10 @@ export function OnboardingWizard() {
     setBusy(true);
     setError(null);
     try {
-      const trimmedCustom = customExclusion.trim();
+      const customItems = customExclusion
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -225,7 +267,7 @@ export function OnboardingWizard() {
           sexAtBirth: sex,
           ...stats,
           activityLevel: activity,
-          exclusions: [...exclusions, ...(trimmedCustom ? [trimmedCustom] : [])],
+          exclusions: [...exclusions, ...customItems],
           mealPriority: finalPriority,
           units,
         }),
@@ -257,7 +299,14 @@ export function OnboardingWizard() {
             {step + 1} of {TOTAL_STEPS}
           </span>
         </div>
-        <div className="mt-3 h-1.5 w-full rounded-full bg-stone-200">
+        <div
+          role="progressbar"
+          aria-valuemin={1}
+          aria-valuemax={TOTAL_STEPS}
+          aria-valuenow={step + 1}
+          aria-label={`Question ${step + 1} of ${TOTAL_STEPS}`}
+          className="mt-3 h-1.5 w-full rounded-full bg-stone-200"
+        >
           <div
             className="h-1.5 rounded-full bg-emerald-500 transition-all"
             style={{ width: `${((step + 1) / TOTAL_STEPS) * 100}%` }}
