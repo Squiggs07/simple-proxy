@@ -43,4 +43,4 @@ jobs:
           git commit -m "Integrate week-only adaptive schedule changes"
           git push origin HEAD:adaptive-v5-week-exceptions
 
-# retry: explicit restore command does not require the word training
+# retry: explicit restore takes precedence over permanent-scope wording
