@@ -7,6 +7,7 @@ export type DetailLevel = "simple" | "standard" | "detailed";
 export type Budget = "low" | "medium" | "flexible";
 export type Variety = "repeat" | "some" | "lots";
 export type DietType = "none" | "vegetarian" | "vegan";
+export type MealPortion = "smaller" | "standard" | "larger";
 export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
 
 export interface TodayOverride {
@@ -82,6 +83,8 @@ export interface AppState {
   todayOverride: TodayOverride;
   eatenMealIds: string[];
   swappedMealIds: Record<string, string>;
+  mealPortionOverrides: Record<string, MealPortion>;
+  rejectedMealIds: string[];
   workoutLogs: WorkoutSessionLog[];
   weightLog: WeightPoint[];
   coachHistory: CoachMessage[];
@@ -89,7 +92,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 3,
+  version: 4,
   onboarded: false,
   goal: "unsure",
   age: 25,
@@ -127,6 +130,8 @@ export const INITIAL_STATE: AppState = {
   todayOverride: { minutes: null, equipment: null, note: null },
   eatenMealIds: [],
   swappedMealIds: {},
+  mealPortionOverrides: {},
+  rejectedMealIds: [],
   workoutLogs: [],
   weightLog: [
     { date: "2026-08-03", weight: 82.5 },
@@ -156,11 +161,13 @@ export function mergeStoredState(value: unknown): AppState {
     ...stored,
     todayOverride: { ...INITIAL_STATE.todayOverride, ...(stored.todayOverride ?? {}) },
     swappedMealIds: stored.swappedMealIds ?? {},
+    mealPortionOverrides: stored.mealPortionOverrides ?? {},
+    rejectedMealIds: Array.isArray(stored.rejectedMealIds) ? stored.rejectedMealIds : [],
     weightLog: Array.isArray(stored.weightLog) ? stored.weightLog : INITIAL_STATE.weightLog,
     workoutLogs: Array.isArray(stored.workoutLogs) ? stored.workoutLogs : [],
     coachHistory: Array.isArray(stored.coachHistory) && stored.coachHistory.length
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
-    version: 3,
+    version: 4,
   };
 }
