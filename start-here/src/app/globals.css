@@ -1,13 +1,114 @@
 @import "tailwindcss";
 
+:root {
+  --background: #f7f4ee;
+  --surface: #ffffff;
+  --surface-soft: #fcfaf6;
+  --ink: #1d2926;
+  --muted: #68736f;
+  --green: #17483f;
+  --green-dark: #123b34;
+  --sage: #ecf3ee;
+  --border: #e6e0d6;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--background); }
 body {
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    sans-serif;
+  margin: 0;
+  background: var(--background);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+
+.start-title {
+  font-size: clamp(2rem, 9vw, 2.5rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  font-weight: 650;
+}
+.start-subtitle { margin-top: .7rem; font-size: 15px; line-height: 1.55; color: var(--muted); }
+.start-primary {
+  min-height: 52px; border: 0; border-radius: 18px; padding: 0 20px;
+  background: var(--green); color: white; font-weight: 700; cursor: pointer;
+  box-shadow: 0 8px 22px rgba(23,72,63,.12); transition: transform .16s ease, background .16s ease;
+}
+.start-primary:hover { background: var(--green-dark); }
+.start-primary:active { transform: scale(.985); }
+.start-secondary {
+  min-height: 50px; border: 1px solid var(--border); border-radius: 18px; padding: 0 20px;
+  background: white; color: var(--ink); font-weight: 650; cursor: pointer;
+}
+.start-choice {
+  min-height: 78px; display: flex; align-items: center; gap: 14px; border: 1px solid var(--border);
+  border-radius: 22px; background: white; padding: 12px 14px; color: var(--ink); cursor: pointer;
+  box-shadow: 0 1px 1px rgba(25,40,35,.02); transition: border-color .16s ease, transform .16s ease, background .16s ease;
+}
+.start-choice:hover { border-color: #cddad4; }
+.start-choice:active { transform: scale(.99); }
+.start-choice strong { display: block; font-size: 15px; line-height: 1.25; }
+.start-choice small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.selected-choice { border-color: #6e9084; background: #fbfdfb; box-shadow: 0 0 0 2px rgba(110,144,132,.12); }
+.goal-mark { display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 46px; border-radius: 14px; font-weight: 800; font-size: 20px; }
+.goal-lavender { background: #eae6f5; }
+.goal-mint { background: #d9f0e7; }
+.goal-green { background: #dcebe3; color: var(--green); }
+.goal-peach { background: #f5ded2; }
+.goal-stone { background: #ececeb; }
+.activity-dot { width: 14px; height: 14px; border-radius: 999px; background: #d9e5df; box-shadow: inset 0 0 0 4px white, 0 0 0 1px #9bb1a7; }
+.selected-choice .activity-dot { background: var(--green); }
+
+.start-field { display: block; border: 1px solid var(--border); border-radius: 20px; background: white; padding: 12px 14px; }
+.start-field > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.start-field input, .start-field select { width: 100%; min-height: 36px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 17px; font-weight: 650; }
+.start-label { margin-bottom: 10px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.chip-row { display: flex; gap: 8px; }
+.chip-row.wrap { flex-wrap: wrap; }
+.number-chip, .text-chip, .food-chip, .suggestion-chip {
+  border: 1px solid var(--border); background: white; color: var(--ink); cursor: pointer; transition: all .15s ease;
+}
+.number-chip { width: 46px; height: 46px; border-radius: 15px; font-weight: 700; }
+.text-chip { min-height: 44px; border-radius: 15px; padding: 0 13px; font-size: 13px; font-weight: 650; }
+.chip-active, .food-chip-active { border-color: var(--green); background: var(--green); color: white; }
+.food-chip { min-height: 44px; border-radius: 999px; padding: 0 15px; font-size: 13px; font-weight: 650; }
+.health-check { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 9px; border: 1px solid #a9b9b2; color: white; }
+.selected-choice .health-check { background: var(--green); border-color: var(--green); }
+
+.eyebrow { margin-bottom: 8px; color: #6e9084; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+.mini-card { min-height: 92px; border: 1px solid var(--border); border-radius: 22px; background: white; padding: 15px; }
+.mini-card span { display: block; color: #8a928f; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; }
+.mini-card strong { display: block; margin-top: 8px; font-size: 14px; line-height: 1.35; }
+.loading-bar { width: 45%; animation: loadSlide 1s ease-in-out infinite alternate; }
+@keyframes loadSlide { from { transform: translateX(0); } to { transform: translateX(120%); } }
+
+.hero-card { border: 1px solid #dfe7e2; border-radius: 28px; background: linear-gradient(145deg,#ffffff 0%,#f4f7f3 100%); padding: 20px; box-shadow: 0 10px 32px rgba(38,63,54,.06); }
+.hero-pill { display: inline-flex; min-height: 28px; align-items: center; border-radius: 999px; background: #e8e6a8; padding: 0 10px; color: #4d5548; font-size: 10px; font-weight: 850; letter-spacing: .12em; }
+.icon-button { display: grid; width: 52px; min-height: 52px; place-items: center; border: 1px solid var(--border); border-radius: 18px; background: white; color: var(--green); font-size: 24px; cursor: pointer; }
+.dashboard-card { border: 1px solid var(--border); border-radius: 24px; background: white; padding: 16px; }
+.card-kicker { color: #88918d; font-size: 10px; font-weight: 850; letter-spacing: .13em; }
+.text-link { border: 0; background: transparent; padding: 0; color: var(--green); font-size: 13px; font-weight: 750; cursor: pointer; }
+.soft-button { min-height: 38px; border: 1px solid #d9e4de; border-radius: 13px; background: #f4f8f5; padding: 0 12px; color: var(--green); font-size: 12px; font-weight: 750; cursor: pointer; }
+.meal-card { display: flex; gap: 14px; border: 1px solid var(--border); border-radius: 24px; background: white; padding: 14px; }
+.meal-art { display: grid; width: 64px; height: 64px; flex: 0 0 64px; place-items: center; border-radius: 18px; font-size: 22px; font-weight: 800; color: #4f5e59; }
+.tiny-button { min-height: 34px; border: 1px solid var(--border); border-radius: 11px; background: #fcfbf8; padding: 0 10px; color: #50605a; font-size: 11px; font-weight: 750; cursor: pointer; }
+.exercise-row { display: flex; min-height: 78px; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 20px; background: white; padding: 13px; }
+.exercise-number { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 12px; background: var(--sage); color: var(--green); font-size: 12px; font-weight: 800; }
+.coach-response { border: 1px solid #dce7e0; border-radius: 26px; background: linear-gradient(145deg,#ffffff,#f1f6f2); padding: 18px; }
+.coach-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--green); color: white; font-size: 13px; }
+.suggestion-chip { min-height: 38px; border-radius: 999px; padding: 0 12px; color: #53615c; font-size: 11px; font-weight: 650; text-align: left; }
+.coach-composer { margin-top: 18px; border: 1px solid var(--border); border-radius: 24px; background: white; padding: 14px; box-shadow: 0 12px 32px rgba(38,63,54,.05); }
+.coach-composer textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 15px; line-height: 1.55; }
+.send-button { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-radius: 13px; background: var(--green); color: white; font-weight: 800; cursor: pointer; }
+.nav-item { display: flex; min-width: 58px; min-height: 58px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; border-radius: 16px; background: transparent; color: #89918e; cursor: pointer; }
+.nav-item span { font-size: 19px; line-height: 1; }
+.nav-item small { font-size: 10px; font-weight: 700; }
+.nav-active { color: var(--green); background: #edf3ef; }
+
+@media (max-height: 720px) {
+  .start-choice { min-height: 68px; padding-top: 9px; padding-bottom: 9px; }
+  .goal-mark { width: 40px; height: 40px; flex-basis: 40px; }
+  .start-title { font-size: 1.9rem; }
 }
