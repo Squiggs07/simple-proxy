@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_STATE } from "@/lib/startHereModels";
-import { buildWorkout, rankMeals } from "@/lib/startHerePlan";
+import { buildDayMeals, buildWorkout, rankMeals } from "@/lib/startHerePlan";
 
 describe("Start Here planning", () => {
   it("mechanically removes allergy matches", () => {
@@ -13,6 +13,21 @@ describe("Start Here planning", () => {
     const state = { ...INITIAL_STATE, likedFoods: ["Pasta"], cuisines: ["Italian"] };
     const meals = rankMeals(state);
     expect(meals[0]?.meal.name.toLowerCase()).toContain("pasta");
+  });
+
+  it("can build a full vegan starter day instead of dead-ending", () => {
+    const state = {
+      ...INITIAL_STATE,
+      dietType: "vegan" as const,
+      likedFoods: ["Pasta", "Rice bowls", "Smoothies"],
+      mealsPerDay: 4,
+    };
+    const meals = buildDayMeals(state, 2200, 140);
+    expect(meals.length).toBe(4);
+    expect(meals.some((item) => item.meal.type === "Breakfast")).toBe(true);
+    expect(meals.some((item) => item.meal.type === "Lunch")).toBe(true);
+    expect(meals.some((item) => item.meal.type === "Dinner")).toBe(true);
+    expect(meals.some((item) => item.meal.type === "Snack")).toBe(true);
   });
 
   it("builds a shorter workout from a today-only time override", () => {
