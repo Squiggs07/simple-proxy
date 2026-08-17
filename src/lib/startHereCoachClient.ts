@@ -2,6 +2,7 @@ import type { AppState } from "@/lib/startHereModels";
 import { buildAdaptationReview } from "@/lib/startHereAdaptation";
 import { learnedBehaviorSignals } from "@/lib/startHereBehavior";
 import type { currentTargets } from "@/lib/startHerePlan";
+import { recoveryPatternSummary, recoveryReasonsToday } from "@/lib/startHereRecovery";
 import { buildTrainingWeek } from "@/lib/startHereWeek";
 
 type Targets = ReturnType<typeof currentTargets>;
@@ -24,6 +25,8 @@ export async function askCoach(
   const adaptation = buildAdaptationReview(state, currentDate);
   const learnedBehavior = learnedBehaviorSignals(state);
   const trainingWeek = buildTrainingWeek(state, currentDate);
+  const recoveryReasons = recoveryReasonsToday(state, currentDate);
+  const recoveryPatterns = recoveryPatternSummary(state, currentDate);
 
   try {
     const response = await fetch("/api/start-here-coach", {
@@ -57,6 +60,8 @@ export async function askCoach(
           healthFlags: state.healthFlags.slice(0, 10),
           hideCalories: state.hideCalories,
           readiness: adaptation.latestReadiness?.readiness ?? null,
+          recoveryReasons,
+          recoveryPatterns,
           workoutAdherence: adaptation.workoutAdherence,
           mealAdherence: adaptation.mealAdherence,
           readinessLowRate: adaptation.readinessLowRate,
