@@ -1,0 +1,47 @@
+name: Start Here Dependency Fix
+
+on:
+  push:
+    branches:
+      - start-here/lovable-transfer
+
+permissions:
+  contents: write
+
+jobs:
+  patch-dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: start-here
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: start-here/lovable-transfer
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: start-here/package-lock.json
+
+      - name: Install patched Next and safe audit fixes
+        run: |
+          npm install next@16.3.1
+          npm audit fix
+
+      - name: Verify production audit
+        run: npm audit --omit=dev
+
+      - name: Commit dependency patches
+        working-directory: .
+        run: |
+          if git diff --quiet; then
+            echo "No dependency changes needed"
+            exit 0
+          fi
+          git config user.name "Start Here CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add start-here/package.json start-here/package-lock.json
+          git commit -m "Patch Start Here production dependencies"
+          git push origin HEAD:start-here/lovable-transfer
