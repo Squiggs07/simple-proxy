@@ -84,7 +84,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const model = process.env.START_HERE_COACH_MODEL || "google/gemini-3.1-flash-lite";
+    const model = process.env.START_HERE_COACH_MODEL || "alibaba/qwen3.7-flash";
     const context = JSON.stringify(parsed.data.context);
     const history = parsed.data.history.map((item) => `${item.role === "user" ? "User" : "Coach"}: ${item.text}`).join("\n");
     const examples = canonicalExamples.map((item) => `- ${item}`).join("\n");
