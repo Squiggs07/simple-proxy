@@ -223,7 +223,7 @@ export function buildWorkout(state: AppState): WorkoutPlan {
   const returning = state.liftingHistory === "returning";
   const hasBaseline = Object.entries(state.liftingBaseline).some(([key, value]) => key !== "note" && value !== null);
   const maxExercises = minutes <= 20 ? 3 : minutes <= 30 ? 4 : minutes <= 45 ? 5 : 6;
-  const desiredPatterns: Exercise["pattern"][] = ["squat", "push", "pull", "hinge", "core", olderBeginner ? "balance" : "single-leg"];
+  const desiredPatterns: Exercise["pattern"][] = ["squat", "push", "pull", "hinge", olderBeginner ? "balance" : "single-leg", "core"];
   const chosen: Exercise[] = [];
 
   for (const pattern of desiredPatterns) {
