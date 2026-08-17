@@ -21,12 +21,10 @@ const base: MacroInputs = {
 
 describe("bmr (Mifflin-St Jeor)", () => {
   it("matches the published formula for men", () => {
-    // 10*85 + 6.25*180 - 5*30 + 5 = 850 + 1125 - 150 + 5
     expect(bmr(base)).toBe(1830);
   });
 
   it("matches the published formula for women", () => {
-    // 10*70 + 6.25*165 - 5*40 - 161 = 700 + 1031.25 - 200 - 161
     expect(
       bmr({ sexAtBirth: "female", age: 40, heightCm: 165, weightKg: 70 }),
     ).toBeCloseTo(1370.25);
@@ -52,13 +50,19 @@ describe("computeMacroTargets — goal adjustments", () => {
     expect(t.flags).toEqual([]);
   });
 
-  it("applies a moderate surplus for muscle gain", () => {
+  it("uses a cautious starting surplus for muscle gain", () => {
     const t = computeMacroTargets({ ...base, goal: "build_muscle" });
-    expect(t.calories).toBe(Math.round(t.maintenanceCalories * 1.1));
+    expect(t.calories).toBe(Math.round(t.maintenanceCalories * 1.07));
   });
 
-  it("holds maintenance for recomp and healthy-habits goals", () => {
-    for (const goal of ["recomp", "healthy_habits"] as const) {
+  it("holds maintenance for non-weight-change starting goals", () => {
+    for (const goal of [
+      "recomp",
+      "healthy_habits",
+      "feel_stronger",
+      "maintain",
+      "unsure",
+    ] as const) {
       const t = computeMacroTargets({ ...base, goal });
       expect(t.calories).toBe(t.maintenanceCalories);
     }
@@ -67,7 +71,6 @@ describe("computeMacroTargets — goal adjustments", () => {
 
 describe("computeMacroTargets — safety floors", () => {
   it("never programs below the female calorie floor", () => {
-    // Small, sedentary person whose 15% deficit would land below 1,200.
     const t = computeMacroTargets({
       goal: "lose_fat",
       sexAtBirth: "female",
@@ -102,7 +105,7 @@ describe("computeMacroTargets — red-flag screening", () => {
   const underweight: MacroInputs = {
     ...base,
     heightCm: 180,
-    weightKg: 55, // BMI ~17
+    weightKg: 55,
   };
 
   it("detects underweight BMI", () => {
@@ -124,19 +127,30 @@ describe("computeMacroTargets — red-flag screening", () => {
     expect(t.flags).toContain("under_18_no_deficit");
   });
 
-  it("still allows a surplus for an underweight user who wants to build muscle", () => {
+  it("still allows a cautious surplus for an underweight user who wants to build muscle", () => {
     const t = computeMacroTargets({ ...underweight, goal: "build_muscle" });
     expect(t.planType).toBe("standard");
-    expect(t.calories).toBe(Math.round(t.maintenanceCalories * 1.1));
-    // The flag still surfaces so the UI can show supportive copy.
+    expect(t.calories).toBe(Math.round(t.maintenanceCalories * 1.07));
     expect(t.flags).toContain("underweight_no_deficit");
   });
 });
 
 describe("computeMacroTargets — macro split", () => {
   it("bases protein on bodyweight", () => {
-    const t = computeMacroTargets(base); // lose_fat → 2.0 g/kg
+    const t = computeMacroTargets(base);
     expect(t.proteinG).toBe(Math.round(85 * 2.0));
+  });
+
+  it("uses the research-led starting protein values for newer goals", () => {
+    expect(computeMacroTargets({ ...base, goal: "build_muscle" }).proteinG).toBe(
+      Math.round(85 * 1.8),
+    );
+    expect(computeMacroTargets({ ...base, goal: "feel_stronger" }).proteinG).toBe(
+      Math.round(85 * 1.6),
+    );
+    expect(computeMacroTargets({ ...base, goal: "maintain" }).proteinG).toBe(
+      Math.round(85 * 1.6),
+    );
   });
 
   it("caps protein at 35% of calories for heavy users on low calories", () => {
