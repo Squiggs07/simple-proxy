@@ -1,0 +1,66 @@
+name: Build clean recovery candidate
+
+on:
+  push:
+    branches: [adaptive-v6-recovery-signals]
+    paths:
+      - .github/workflows/adaptive-v6-clean.yml
+
+permissions:
+  contents: write
+
+jobs:
+  clean-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: adaptive-v6-recovery-signals
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Ensure recovery integration is applied
+        run: |
+          if grep -q 'mergeRecoverySignalFromText' src/components/StartHereAppV2.tsx; then
+            echo 'Recovery integration already present.'
+          else
+            python .github/scripts/v6_integrate_recovery.py
+          fi
+      - name: Validate candidate
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          npx eslint src/components/StartHereAppV2.tsx src/lib/startHereModels.ts src/lib/startHereRecovery.ts src/lib/startHereAdaptation.ts src/lib/startHereCoachClient.ts src/app/api/start-here-coach/route.ts
+          npm test
+          npm run build
+      - name: Save validated product files
+        run: |
+          mkdir -p /tmp/v6/src/components /tmp/v6/src/lib /tmp/v6/src/app/api/start-here-coach
+          cp src/components/StartHereAppV2.tsx /tmp/v6/src/components/
+          cp src/lib/startHereModels.ts /tmp/v6/src/lib/
+          cp src/lib/startHereRecovery.ts /tmp/v6/src/lib/
+          cp src/lib/startHereRecovery.test.ts /tmp/v6/src/lib/
+          cp src/lib/startHereAdaptation.ts /tmp/v6/src/lib/
+          cp src/lib/startHereAdaptation.test.ts /tmp/v6/src/lib/
+          cp src/lib/startHereCoachClient.ts /tmp/v6/src/lib/
+          cp src/app/api/start-here-coach/route.ts /tmp/v6/src/app/api/start-here-coach/
+      - name: Create clean branch from dev
+        run: |
+          git fetch origin dev
+          git checkout -B adaptive-v6-clean origin/dev
+          cp /tmp/v6/src/components/StartHereAppV2.tsx src/components/StartHereAppV2.tsx
+          cp /tmp/v6/src/lib/startHereModels.ts src/lib/startHereModels.ts
+          cp /tmp/v6/src/lib/startHereRecovery.ts src/lib/startHereRecovery.ts
+          cp /tmp/v6/src/lib/startHereRecovery.test.ts src/lib/startHereRecovery.test.ts
+          cp /tmp/v6/src/lib/startHereAdaptation.ts src/lib/startHereAdaptation.ts
+          cp /tmp/v6/src/lib/startHereAdaptation.test.ts src/lib/startHereAdaptation.test.ts
+          cp /tmp/v6/src/lib/startHereCoachClient.ts src/lib/startHereCoachClient.ts
+          cp /tmp/v6/src/app/api/start-here-coach/route.ts src/app/api/start-here-coach/route.ts
+          git config user.name "Squiggs07"
+          git config user.email "160694990+Squiggs07@users.noreply.github.com"
+          git add src/components/StartHereAppV2.tsx src/lib/startHereModels.ts src/lib/startHereRecovery.ts src/lib/startHereRecovery.test.ts src/lib/startHereAdaptation.ts src/lib/startHereAdaptation.test.ts src/lib/startHereCoachClient.ts src/app/api/start-here-coach/route.ts
+          git commit -m "Add recovery-aware adaptive planning"
+          git push --force origin adaptive-v6-clean
