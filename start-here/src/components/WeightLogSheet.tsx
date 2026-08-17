@@ -1,22 +1,29 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import type { UnitSystem } from "@/lib/startHereModels";
+import { inputWeightToKg, kgToInputWeight } from "@/lib/startHereUnits";
 
 interface Props {
   currentKg: number;
+  unitSystem: UnitSystem;
   onClose: () => void;
   onSave: (kg: number) => void;
 }
 
-export function WeightLogSheet({ currentKg, onClose, onSave }: Props) {
-  const [value, setValue] = useState(currentKg.toFixed(1));
+export function WeightLogSheet({ currentKg, unitSystem, onClose, onSave }: Props) {
+  const initial = kgToInputWeight(currentKg, unitSystem);
+  const [value, setValue] = useState(initial.toFixed(1));
   const parsed = Number(value);
-  const valid = Number.isFinite(parsed) && parsed >= 25 && parsed <= 350;
+  const min = unitSystem === "imperial" ? 55 : 25;
+  const max = unitSystem === "imperial" ? 772 : 350;
+  const valid = Number.isFinite(parsed) && parsed >= min && parsed <= max;
+  const unit = unitSystem === "imperial" ? "lb" : "kg";
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!valid) return;
-    onSave(Math.round(parsed * 10) / 10);
+    onSave(inputWeightToKg(parsed, unitSystem));
   }
 
   return (
@@ -36,11 +43,11 @@ export function WeightLogSheet({ currentKg, onClose, onSave }: Props) {
           <label className="start-field">
             <span>Weight</span>
             <div className="unit-input">
-              <input autoFocus inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} aria-label="Weight in kilograms" />
-              <span>kg</span>
+              <input autoFocus inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} aria-label={`Weight in ${unit}`} />
+              <span>{unit}</span>
             </div>
           </label>
-          {!valid && value.length > 0 && <p className="mt-2 text-xs leading-5 text-[#B47B3F]">Enter a weight between 25 and 350 kg.</p>}
+          {!valid && value.length > 0 && <p className="mt-2 text-xs leading-5 text-[#B47B3F]">Enter a weight between {min} and {max} {unit}.</p>}
           <button disabled={!valid} className="start-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-40">Save reading</button>
         </form>
       </section>
