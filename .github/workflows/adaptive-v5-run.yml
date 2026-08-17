@@ -21,6 +21,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - name: Fix explicit restore intent
+        run: python .github/scripts/v5_fix_restore_intent.py
       - name: Integrate week exceptions
         run: python .github/scripts/v5_integrate_week_exceptions.py
       - name: Install
@@ -37,6 +39,8 @@ jobs:
         run: |
           git config user.name "Squiggs07"
           git config user.email "160694990+Squiggs07@users.noreply.github.com"
-          git add src/components/StartHereAppV2.tsx src/lib/startHereWeek.ts src/lib/startHereAdaptation.ts src/lib/startHereCoach.ts src/lib/startHereAdaptation.test.ts .github/workflows/start-here-ci.yml
+          git add src/components/StartHereAppV2.tsx src/lib/startHereWeek.ts src/lib/startHereWeekCoach.ts src/lib/startHereAdaptation.ts src/lib/startHereCoach.ts src/lib/startHereAdaptation.test.ts .github/workflows/start-here-ci.yml
           git commit -m "Integrate week-only adaptive schedule changes"
           git push origin HEAD:adaptive-v5-week-exceptions
+
+# retry: explicit restore command does not require the word training
