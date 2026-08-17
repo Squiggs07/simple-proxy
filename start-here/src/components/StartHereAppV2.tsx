@@ -98,8 +98,6 @@ const healthChoices = [
   "Exercise-limiting injury or condition",
   "Concerning symptoms",
 ];
-const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 export function StartHereAppV2() {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [ready, setReady] = useState(false);
@@ -135,17 +133,6 @@ export function StartHereAppV2() {
   const plannedMeals = useMemo(() => buildDayMeals(state, targets.calories, targets.proteinGrams), [state, targets.calories, targets.proteinGrams]);
   const rankedMeals = useMemo(() => rankMeals(state), [state]);
   const baseWorkout = useMemo(() => buildWorkout(state), [state]);
-  const workout = useMemo<WorkoutPlan>(() => ({
-    ...baseWorkout,
-    exercises: baseWorkout.exercises.map((item) => {
-      const overrideId = exerciseSwaps[item.exercise.id];
-      if (!overrideId) return item;
-      const replacement = ALL_MEALS.length >= 0 ? undefined : undefined;
-      void replacement;
-      return item;
-    }),
-  }), [baseWorkout, exerciseSwaps]);
-
   const effectiveWorkout = useMemo<WorkoutPlan>(() => {
     const allAlternatives = new Map<string, Exercise>();
     for (const item of baseWorkout.exercises) {
@@ -159,8 +146,6 @@ export function StartHereAppV2() {
       }),
     };
   }, [baseWorkout, exerciseSwaps, state]);
-  void workout;
-
   const progressReview = useMemo(() => reviewProgress(state), [state]);
   const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
   const swapSource = swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? null : null;

@@ -53,7 +53,7 @@ function mealContains(meal: Meal, terms: string[]) {
 export function isMealAllowed(meal: Meal, state: AppState) {
   if (mealContains(meal, [...state.allergies, ...state.neverFoods])) return false;
   if (state.dietType === "vegan") {
-    const blocked = ["chicken", "turkey", "steak", "beef", "salmon", "fish", "egg", "dairy", "milk", "cheese", "whey"];
+    const blocked = ["chicken", "turkey", "steak", "beef", "salmon", "fish", "egg", "greek yogurt", "cottage cheese", "skim milk", "cheddar", "parmesan", "whey"];
     if (mealContains(meal, blocked)) return false;
   }
   if (state.dietType === "vegetarian") {
