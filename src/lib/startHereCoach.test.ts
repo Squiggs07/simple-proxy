@@ -61,4 +61,32 @@ describe("Start Here Coach action layer", () => {
     expect(result.patch.detailLevel).toBe("simple");
     expect(result.patch.calorieOverride).toBeUndefined();
   });
+
+  it("can rotate to genuinely different meals from normal language", () => {
+    const state = { ...INITIAL_STATE, mealRotation: 2, swappedMealIds: { "chicken-rice-bowl": "turkey-rice-bowl" } };
+    const result = interpretCoachRequest("Give me different meals", state);
+    expect(result.patch.mealRotation).toBe(3);
+    expect(result.patch.swappedMealIds).toEqual({});
+  });
+
+  it("captures foods the user actively wants to eat", () => {
+    const result = interpretCoachRequest("I want tacos and salmon more often", { ...INITIAL_STATE, foodRequests: [] });
+    const requests = result.patch.foodRequests ?? [];
+    expect(requests.some((item) => item.toLowerCase().includes("taco"))).toBe(true);
+    expect(requests.some((item) => item.toLowerCase().includes("salmon"))).toBe(true);
+    expect(result.patch.mealRotation).toBeTypeOf("number");
+  });
+
+  it("answers normal training questions without pretending a plan change happened", () => {
+    const result = interpretCoachRequest("How long should I rest between sets?", INITIAL_STATE);
+    expect(Object.keys(result.patch)).toHaveLength(0);
+    expect(result.reply.toLowerCase()).toContain("2–3 minutes");
+  });
+
+  it("answers common nutrition timing questions without changing app state", () => {
+    const result = interpretCoachRequest("What should I eat before lifting?", INITIAL_STATE);
+    expect(Object.keys(result.patch)).toHaveLength(0);
+    expect(result.reply.toLowerCase()).toContain("carbs");
+    expect(result.reply.toLowerCase()).toContain("protein");
+  });
 });
