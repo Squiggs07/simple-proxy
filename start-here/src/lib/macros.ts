@@ -6,7 +6,14 @@
  * at the edges.
  */
 
-export type Goal = "lose_fat" | "build_muscle" | "recomp" | "healthy_habits";
+export type Goal =
+  | "lose_fat"
+  | "build_muscle"
+  | "recomp"
+  | "healthy_habits"
+  | "feel_stronger"
+  | "maintain"
+  | "unsure";
 export type SexAtBirth = "male" | "female";
 export type ActivityLevel =
   | "mostly_sitting"
@@ -65,9 +72,13 @@ const ACTIVITY_FACTOR: Record<ActivityLevel, number> = {
 /** Calorie adjustment per goal, as a fraction of maintenance. */
 const GOAL_ADJUSTMENT: Record<Goal, number> = {
   lose_fat: -0.15,
-  build_muscle: 0.1,
+  // A cautious starting surplus. The trend-review loop can adjust this later.
+  build_muscle: 0.07,
   recomp: 0,
   healthy_habits: 0,
+  feel_stronger: 0,
+  maintain: 0,
+  unsure: 0,
 };
 
 /** Protein target in g per kg bodyweight, by goal. */
@@ -76,6 +87,9 @@ const PROTEIN_G_PER_KG: Record<Goal, number> = {
   build_muscle: 1.8,
   recomp: 1.8,
   healthy_habits: 1.6,
+  feel_stronger: 1.6,
+  maintain: 1.6,
+  unsure: 1.6,
 };
 
 const KCAL_PER_G = { protein: 4, carbs: 4, fat: 9 } as const;
@@ -136,8 +150,6 @@ export function computeMacroTargets(inputs: MacroInputs): MacroTargets {
   let calories = Math.round(maintenance * (1 + adjustment));
   const floor = CALORIE_FLOOR[inputs.sexAtBirth];
   if (calories < floor) {
-    // Only flag the clamp when it actually changed a deficit target; if even
-    // maintenance is below the floor (very small bodies), still clamp.
     calories = floor;
     flags.push("clamped_to_calorie_floor");
   }
@@ -149,7 +161,8 @@ export function computeMacroTargets(inputs: MacroInputs): MacroTargets {
     Math.min(PROTEIN_G_PER_KG[inputs.goal] * inputs.weightKg, proteinCap),
   );
 
-  // Fat at 30% of calories, carbs fill the rest.
+  // Fat at 30% of calories, carbs fill the rest. Beginners do not need these
+  // details by default, but the verified values remain available underneath.
   const fatG = Math.round((calories * 0.3) / KCAL_PER_G.fat);
   const remainingKcal =
     calories - proteinG * KCAL_PER_G.protein - fatG * KCAL_PER_G.fat;
