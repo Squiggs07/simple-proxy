@@ -1,0 +1,37 @@
+name: Prioritize unilateral pattern
+
+on:
+  push:
+    branches: [adaptive-v2-working]
+    paths:
+      - .github/workflows/adaptive-v2-order-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: adaptive-v2-working
+      - name: Keep full-body priorities inside 45 minutes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/startHerePlan.ts')
+          text = p.read_text()
+          old = 'const desiredPatterns: Exercise["pattern"][] = ["squat", "push", "pull", "hinge", "core", olderBeginner ? "balance" : "single-leg"];'
+          new = 'const desiredPatterns: Exercise["pattern"][] = ["squat", "push", "pull", "hinge", olderBeginner ? "balance" : "single-leg", "core"];'
+          if old not in text:
+              raise SystemExit('Expected desired-pattern order not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit
+        run: |
+          git config user.name "Squiggs07"
+          git config user.email "160694990+Squiggs07@users.noreply.github.com"
+          git add src/lib/startHerePlan.ts
+          git commit -m "Prioritize unilateral work in standard full-body sessions"
+          git push origin HEAD:adaptive-v2-working
