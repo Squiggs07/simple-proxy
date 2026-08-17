@@ -32,18 +32,7 @@ jobs:
           app = Path("start-here/src/components/StartHereAppV2.tsx")
           text = app.read_text()
           text = text.replace('const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];\n\n', '')
-          old = '''  const workout = useMemo<WorkoutPlan>(() => ({
-    ...baseWorkout,
-    exercises: baseWorkout.exercises.map((item) => {
-      const overrideId = exerciseSwaps[item.exercise.id];
-      if (!overrideId) return item;
-      const replacement = ALL_MEALS.length >= 0 ? undefined : undefined;
-      void replacement;
-      return item;
-    }),
-  }), [baseWorkout, exerciseSwaps]);
-
-'''
+          old = "  const workout = useMemo<WorkoutPlan>(() => ({\n    ...baseWorkout,\n    exercises: baseWorkout.exercises.map((item) => {\n      const overrideId = exerciseSwaps[item.exercise.id];\n      if (!overrideId) return item;\n      const replacement = ALL_MEALS.length >= 0 ? undefined : undefined;\n      void replacement;\n      return item;\n    }),\n  }), [baseWorkout, exerciseSwaps]);\n\n"
           text = text.replace(old, '')
           text = text.replace('  void workout;\n\n', '')
           app.write_text(text)
