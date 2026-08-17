@@ -38,15 +38,42 @@ describe("adaptive planning", () => {
     expect(schedule?.patch.trainingDays).toBe(3);
   });
 
-  it("does not judge food adherence until enough real logging days exist", () => {
-    const current = state({ mealLogs: [
-      { date: "2026-08-16", mealId: "a" },
-      { date: "2026-08-17", mealId: "b" },
-    ] });
+  it("counts unlogged days as missing coverage instead of ignoring them", () => {
+    const current = state({
+      mealsPerDay: 3,
+      onboardingCompletedAt: "2026-08-08T12:00:00.000Z",
+      mealLogs: [
+        { date: "2026-08-16", mealId: "a" },
+        { date: "2026-08-17", mealId: "b" },
+      ],
+    });
+    expect(mealAdherence(current, "2026-08-17")).toBeCloseTo(2 / 30, 4);
+  });
+
+  it("waits before evaluating food coverage for a brand-new plan", () => {
+    const current = state({
+      onboardingCompletedAt: "2026-08-16T12:00:00.000Z",
+      mealLogs: [{ date: "2026-08-17", mealId: "a" }],
+    });
     expect(mealAdherence(current, "2026-08-17")).toBeNull();
   });
 
-  it("recognizes repeated top-of-range performance as a progression signal", () => {
+  it("does not stack another ongoing adaptation during the cooldown", () => {
+    const current = state({
+      trainingDays: 4,
+      workoutLogs: [
+        { id: "w1", date: "2026-08-05", workoutName: "A", minutes: 40, exercises: [], completed: true },
+        { id: "w2", date: "2026-08-12", workoutName: "A", minutes: 40, exercises: [], completed: true },
+      ],
+      coachHistory: [
+        ...INITIAL_STATE.coachHistory,
+        { id: "adapt", role: "coach", text: "I adapted the plan: Try 4 training days instead of 5. Your recent pattern supported it.", createdAt: "2026-08-15T12:00:00.000Z" },
+      ],
+    });
+    expect(buildAdaptationReview(current, "2026-08-17").recommendations.some((item) => item.scope === "ongoing")).toBe(false);
+  });
+
+  it("recognizes repeated top-of-range performance at a comparable load as a progression signal", () => {
     const current = state({
       workoutLogs: [
         {
@@ -66,5 +93,27 @@ describe("adaptive planning", () => {
       ],
     });
     expect(progressionCue(current, "leg-press")).toContain("small load increase");
+  });
+
+  it("does not call for more load when the recent session used much less weight", () => {
+    const current = state({
+      workoutLogs: [
+        {
+          id: "w1", date: "2026-08-10", workoutName: "A", minutes: 45, completed: true,
+          exercises: [{ exerciseId: "leg-press", sets: [
+            { weight: 100, reps: 10, complete: true },
+            { weight: 100, reps: 10, complete: true },
+          ] }],
+        },
+        {
+          id: "w2", date: "2026-08-14", workoutName: "A", minutes: 45, completed: true,
+          exercises: [{ exerciseId: "leg-press", sets: [
+            { weight: 80, reps: 12, complete: true },
+            { weight: 80, reps: 12, complete: true },
+          ] }],
+        },
+      ],
+    });
+    expect(progressionCue(current, "leg-press")).toBeNull();
   });
 });
