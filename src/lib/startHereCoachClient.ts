@@ -68,6 +68,7 @@ export async function askCoach(
           nextTrainingName: trainingWeek.nextTrainingDay.workoutName,
           weekTrainingCompleted: trainingWeek.completedScheduled,
           weekTrainingPlanned: trainingWeek.scheduledCount,
+          weekScheduleAdjustments: trainingWeek.adjustmentSummary.slice(0, 6),
         },
         history: state.coachHistory.slice(-6).map((item) => ({ role: item.role, text: item.text })),
       }),
