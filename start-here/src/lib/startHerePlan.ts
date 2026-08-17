@@ -2,6 +2,7 @@ import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
+import { displayLoad } from "@/lib/startHereUnits";
 
 export interface RankedMeal {
   meal: Meal;
@@ -166,7 +167,7 @@ function previousPerformance(state: AppState, exerciseId: string) {
     for (let setIndex = exerciseLog.sets.length - 1; setIndex >= 0; setIndex -= 1) {
       const set = exerciseLog.sets[setIndex];
       if (!set.complete || (set.reps === null && set.weight === null)) continue;
-      const load = set.weight === null ? "BW" : String(set.weight);
+      const load = displayLoad(set.weight, state.unitSystem);
       const reps = set.reps === null ? "—" : String(set.reps);
       return `${load} × ${reps}`;
     }

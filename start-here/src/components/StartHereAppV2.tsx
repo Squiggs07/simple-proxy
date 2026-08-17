@@ -2,11 +2,13 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { ActiveWorkoutExperience } from "@/components/ActiveWorkoutExperience";
+import { BasicProfileFields, validBasicProfile } from "@/components/BasicProfileFields";
 import { MealPortionControl } from "@/components/MealPortionControl";
 import { MonthlySummarySheet } from "@/components/MonthlySummarySheet";
 import { TodayMealRow } from "@/components/TodayMealRow";
 import { WeightLogSheet } from "@/components/WeightLogSheet";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
+import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { interpretCoachRequest } from "@/lib/startHereCoach";
@@ -126,7 +128,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         if (saved) setState(mergeStoredState(JSON.parse(saved)));
       } catch {
         setState(INITIAL_STATE);
@@ -138,7 +140,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v4", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v5", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -342,8 +344,8 @@ export function StartHereAppV2() {
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
       {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
-      {showWeightLog && <WeightLogSheet currentKg={state.weightKg} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
   );
@@ -409,18 +411,8 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
         )}
 
         {step === 2 && (
-          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue onClick={() => setStep(3)} />}>
-            <div className="mt-6 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Age"><input inputMode="numeric" type="number" min={13} max={100} value={state.age} onChange={(e) => patch({ age: Number(e.target.value) })} /></Field>
-                <Field label="Equation used"><select value={state.sexEquation} onChange={(e) => patch({ sexEquation: e.target.value as "male" | "female" })}><option value="male">Male</option><option value="female">Female</option></select></Field>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Height"><div className="unit-input"><input inputMode="decimal" type="number" value={state.heightCm} onChange={(e) => patch({ heightCm: Number(e.target.value) })} /><span>cm</span></div></Field>
-                <Field label="Current weight"><div className="unit-input"><input inputMode="decimal" type="number" value={state.weightKg} onChange={(e) => patch({ weightKg: Number(e.target.value) })} /><span>kg</span></div></Field>
-              </div>
-              <InfoCard>We use these only to make the starting estimate more sensible. No body-fat estimate, target photo, or advanced macro setup required.</InfoCard>
-            </div>
+          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue disabled={!validBasicProfile(state)} onClick={() => setStep(3)} />}>
+            <BasicProfileFields state={state} patch={patch} />
           </OnboardingSection>
         )}
 
@@ -526,8 +518,8 @@ function OnboardingSection({ title, copy, eyebrow, children, footer }: { title: 
   return <section className="flex flex-1 flex-col">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className="start-title">{title}</h1><p className="start-subtitle">{copy}</p>{children}{footer && <div className="mt-auto pt-5">{footer}</div>}</section>;
 }
 
-function Continue({ onClick, label = "Continue" }: { onClick: () => void; label?: string }) {
-  return <button onClick={onClick} className="start-primary w-full">{label}<Icon name="arrow" size={18} /></button>;
+function Continue({ onClick, label = "Continue", disabled = false }: { onClick: () => void; label?: string; disabled?: boolean }) {
+  return <button disabled={disabled} onClick={onClick} className="start-primary w-full disabled:cursor-not-allowed disabled:opacity-40">{label}<Icon name="arrow" size={18} /></button>;
 }
 
 function WelcomeMini({ icon, label }: { icon: IconName; label: string }) {
@@ -630,7 +622,7 @@ function ProgressView({ state, review, targets, patch, setTab, openWeightLog, op
   }
   return <div>
     <PageHeader eyebrow="PROGRESS" title="Trust the trend, not one dot." copy="We wait for enough data before suggesting a change." />
-    <section className="dashboard-card"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">YOUR TREND</p><p className="mt-2 text-[30px] font-semibold tracking-[-.035em]">{review.trendNow?.toFixed(1) ?? "—"} kg</p><p className="mt-1 text-sm text-[#68736F]">{review.change === null ? "No trend yet" : `${review.change > 0 ? "+" : ""}${review.change.toFixed(1)} kg across the smoothed sample`}</p></div><button onClick={openWeightLog} className="soft-button"><Icon name="plus" size={14} /> Log weight</button></div><TrendChart points={trend} /><p className="mt-3 text-xs leading-5 text-[#7C8582]">Raw readings are light dots. The darker line is the smoothed trend we actually pay attention to.</p></section>
+    <section className="dashboard-card"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">YOUR TREND</p><p className="mt-2 text-[30px] font-semibold tracking-[-.035em]">{review.trendNow === null ? "—" : displayWeight(review.trendNow, state.unitSystem)}</p><p className="mt-1 text-sm text-[#68736F]">{review.change === null ? "No trend yet" : `${displayWeightChange(review.change, state.unitSystem)} across the smoothed sample`}</p></div><button onClick={openWeightLog} className="soft-button"><Icon name="plus" size={14} /> Log weight</button></div><TrendChart points={trend} /><p className="mt-3 text-xs leading-5 text-[#7C8582]">Raw readings are light dots. The darker line is the smoothed trend we actually pay attention to.</p></section>
     <section className={cx("mt-3 rounded-[24px] p-4", review.ready ? "bg-[#ECF3EE]" : "bg-[#E7EFF5]")}><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="target" size={20} /></span><div className="flex-1"><p className="font-semibold">{review.ready ? "Trend review" : "Still learning your trend"}</p><p className="mt-1 text-sm leading-6 text-[#5D6965]">{review.message}</p>{review.suggestedCalorieChange !== 0 && <button onClick={applyReview} className="soft-button mt-3">Apply {review.suggestedCalorieChange > 0 ? "+" : ""}{review.suggestedCalorieChange} calories</button>}</div></div></section>
     <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.eatenMealIds.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><button onClick={openMonthlySummary} className="coach-inline mt-3"><Icon name="calendar" size={18} /><span><strong>Monthly summary</strong><small>See the useful signals without a score.</small></span><Icon name="chevron" size={16} /></button>
     <button onClick={() => setTab("coach")} className="coach-inline mt-3"><Icon name="coach" size={18} /><span><strong>Want to change the pace?</strong><small>Coach can explain the tradeoff before changing it.</small></span><Icon name="chevron" size={16} /></button>
@@ -672,7 +664,7 @@ function MealSwap({ source, state, ranked, close, choose }: { source: Meal; stat
 }
 
 function ProfileSheet({ state, targets, patch, close, reset }: { state: AppState; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; close: () => void; reset: () => void }) {
-  return <BottomSheet close={close} title="Your plan settings"><div className="grid grid-cols-2 gap-3"><MiniCard label="Goal" value={GOAL_LABELS[state.goal]} /><MiniCard label="Starting target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><div className="mt-5 space-y-3"><SettingRow title="Hide calories" copy="Meals and protein stay visible." control={<button onClick={() => patch({ hideCalories: !state.hideCalories })} className={cx("toggle", state.hideCalories && "toggle-on")}><span /></button>} /><SettingRow title="Detail level" copy="Change how much information appears on normal screens." control={<select className="mini-select" value={state.detailLevel} onChange={(e) => patch({ detailLevel: e.target.value as AppState["detailLevel"] })}><option value="simple">Simple</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select>} /><SettingRow title="Grocery & prep" copy="Keep prep tools available under Eat." control={<button onClick={() => patch({ showPrep: !state.showPrep })} className={cx("toggle", state.showPrep && "toggle-on")}><span /></button>} /></div><div className="mt-5 rounded-[20px] bg-[#FCFAF6] p-4"><p className="text-xs font-bold text-[#68736F]">ESTIMATE DETAILS</p><div className="mt-3 grid grid-cols-2 gap-y-3 text-sm"><span className="text-[#7D8582]">Maintenance</span><strong className="text-right">{targets.maintenanceCalories} cal</strong><span className="text-[#7D8582]">Protein range</span><strong className="text-right">{targets.proteinRange[0]}–{targets.proteinRange[1]}g</strong><span className="text-[#7D8582]">Activity</span><strong className="text-right capitalize">{state.activity}</strong></div></div><button onClick={reset} className="mt-6 w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm font-semibold text-[#7A514D]">Restart onboarding</button></BottomSheet>;
+  return <BottomSheet close={close} title="Your plan settings"><div className="grid grid-cols-2 gap-3"><MiniCard label="Goal" value={GOAL_LABELS[state.goal]} /><MiniCard label="Starting target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><div className="mt-5 space-y-3"><SettingRow title="Units" copy="Change how body weight, height, and gym loads are displayed." control={<select className="mini-select" value={state.unitSystem} onChange={(e) => patch({ unitSystem: e.target.value as AppState["unitSystem"] })}><option value="imperial">Imperial</option><option value="metric">Metric</option></select>} /><SettingRow title="Hide calories" copy="Meals and protein stay visible." control={<button onClick={() => patch({ hideCalories: !state.hideCalories })} className={cx("toggle", state.hideCalories && "toggle-on")}><span /></button>} /><SettingRow title="Detail level" copy="Change how much information appears on normal screens." control={<select className="mini-select" value={state.detailLevel} onChange={(e) => patch({ detailLevel: e.target.value as AppState["detailLevel"] })}><option value="simple">Simple</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select>} /><SettingRow title="Grocery & prep" copy="Keep prep tools available under Eat." control={<button onClick={() => patch({ showPrep: !state.showPrep })} className={cx("toggle", state.showPrep && "toggle-on")}><span /></button>} /></div><div className="mt-5 rounded-[20px] bg-[#FCFAF6] p-4"><p className="text-xs font-bold text-[#68736F]">ESTIMATE DETAILS</p><div className="mt-3 grid grid-cols-2 gap-y-3 text-sm"><span className="text-[#7D8582]">Maintenance</span><strong className="text-right">{targets.maintenanceCalories} cal</strong><span className="text-[#7D8582]">Protein range</span><strong className="text-right">{targets.proteinRange[0]}–{targets.proteinRange[1]}g</strong><span className="text-[#7D8582]">Activity</span><strong className="text-right capitalize">{state.activity}</strong></div></div><button onClick={reset} className="mt-6 w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm font-semibold text-[#7A514D]">Restart onboarding</button></BottomSheet>;
 }
 
 function SettingRow({ title, copy, control }: { title: string; copy: string; control: ReactNode }) {

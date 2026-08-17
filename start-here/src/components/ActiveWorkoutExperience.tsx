@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { alternativeExercises, type WorkoutPlan } from "@/lib/startHerePlan";
 import type { AppState, ExerciseLog, WorkoutSetLog } from "@/lib/startHereModels";
+import { inputWeightToKg } from "@/lib/startHereUnits";
 
 interface SetDraft {
   weight: string;
@@ -79,7 +80,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
       sets: Array.from({ length: item.sets }, (_, index): WorkoutSetLog => {
         const row = drafts[item.exercise.id]?.[index];
         const reps = row?.reps.trim() ? Number(row.reps) : null;
-        const weight = row?.weight.trim() ? Number(row.weight) : null;
+        const weight = row?.weight.trim() ? inputWeightToKg(Number(row.weight), state.unitSystem) : null;
         return {
           reps: Number.isFinite(reps) ? reps : null,
           weight: Number.isFinite(weight) ? weight : null,
@@ -140,7 +141,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
                 </div>
 
                 <div className="mt-4 grid grid-cols-[34px_1fr_64px_64px_42px] gap-2 text-center text-[9px] font-bold uppercase tracking-[.07em] text-[#8A938F]">
-                  <span>Set</span><span>Previous</span><span>Wt</span><span>Reps</span><span>Done</span>
+                  <span>Set</span><span>Previous</span><span>Wt ({state.unitSystem === "imperial" ? "lb" : "kg"})</span><span>Reps</span><span>Done</span>
                 </div>
 
                 {Array.from({ length: item.sets }, (_, index) => {
@@ -153,7 +154,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
                         value={row.weight}
                         onChange={(event) => updateSet(item.exercise.id, index, { weight: event.target.value })}
                         inputMode="decimal"
-                        aria-label={`${item.exercise.name} set ${index + 1} weight`}
+                        aria-label={`${item.exercise.name} set ${index + 1} weight in ${state.unitSystem === "imperial" ? "pounds" : "kilograms"}`}
                         placeholder="—"
                         className="h-10 min-w-0 rounded-xl border border-[#E6E0D6] bg-[#FCFAF6] px-2 text-center text-xs font-semibold outline-none focus:border-[#6E9084]"
                       />
