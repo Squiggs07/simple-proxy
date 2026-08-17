@@ -1,0 +1,30 @@
+name: Package Start Here
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v4
+
+      - name: Create clean upload folder
+        run: |
+          mkdir -p package/start-here-vercel-upload
+          rsync -a --exclude='.git' --exclude='.github' ./ package/start-here-vercel-upload/
+
+      - name: Upload project folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: start-here-vercel-upload
+          path: package/start-here-vercel-upload
+          if-no-files-found: error
+          retention-days: 7
