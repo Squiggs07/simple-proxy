@@ -1,4 +1,5 @@
 import { calculateTargets, validateCalorieTarget, validateProteinTarget } from "@/lib/startHereEngine";
+import { buildDayMeals } from "@/lib/startHerePlan";
 import type { AppState, Equipment } from "@/lib/startHereModels";
 
 export interface CoachActionResult {
@@ -64,6 +65,14 @@ function detectEquipment(text: string): Equipment | null {
   return null;
 }
 
+function detectDirectGoal(text: string): AppState["goal"] | null {
+  if (/lose fat|lose weight|fat loss|cutting phase|start a cut/.test(text)) return "lose";
+  if (/maintain my weight|maintain weight|stay the same weight|maintenance phase/.test(text)) return "maintain";
+  if (/feel stronger|strength and health|general strength/.test(text)) return "strength";
+  if (/build muscle|gain muscle|muscle gain|gain size/.test(text)) return "gain";
+  return null;
+}
+
 export function interpretCoachRequest(raw: string, state: AppState): CoachActionResult {
   const text = raw.trim().toLowerCase();
   const { profile, base, calories, protein } = currentNumbers(state);
@@ -81,6 +90,23 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
       patch: { goal: "gain", calorieOverride: next.calories, proteinOverride: next.proteinGrams },
       reply: `I moved you to a cautious muscle-gain phase with a small starting surplus and ${next.proteinGrams}g of protein. I’ll judge it from the smoothed trend after enough data, not a single weigh-in. Zero fat gain cannot be guaranteed. What meals do you genuinely enjoy enough to repeat?`,
       changeSummary: `Goal → Build muscle · ${next.calories} cal · ${next.proteinGrams}g protein`,
+    };
+  }
+
+  const directGoal = detectDirectGoal(text);
+  if (directGoal) {
+    const next = calculateTargets({ ...profile, goal: directGoal });
+    const labels: Record<AppState["goal"], string> = {
+      lose: "Lose fat",
+      gain: "Build muscle",
+      maintain: "Maintain weight",
+      strength: "Feel stronger",
+      unsure: "Not sure yet",
+    };
+    return {
+      patch: { goal: directGoal, calorieOverride: next.calories, proteinOverride: next.proteinGrams },
+      reply: `Done. I changed your goal to ${labels[directGoal]} and rebuilt the starting calorie and protein targets from the deterministic engine.`,
+      changeSummary: `Goal → ${labels[directGoal]} · ${next.calories} cal · ${next.proteinGrams}g protein`,
     };
   }
 
@@ -172,7 +198,17 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
 
   const minutesMatch = text.match(/(15|20|25|30|35|40|45|50|60|75|90)\s*(?:min|minute)/i);
   const equipment = detectEquipment(text);
-  if ((minutesMatch || equipment) && (todayOnly || !permanent)) {
+  const trainingContext = /workout|train|training|session|gym|equipment|bodyweight|dumbbell|no equipment/.test(text);
+
+  if (permanent && equipment && trainingContext) {
+    return {
+      patch: { equipment, todayOverride: { minutes: null, equipment: null, note: null } },
+      reply: `Done. Your ongoing training setup now uses ${equipment === "home" ? "home / no-equipment-friendly options" : equipment}. I rebuilt future workouts around that instead of treating it as a one-day exception.`,
+      changeSummary: `Ongoing equipment → ${equipment}`,
+    };
+  }
+
+  if ((minutesMatch || equipment) && todayOnly && trainingContext) {
     const minutes = minutesMatch ? Number(minutesMatch[1]) : state.todayOverride.minutes;
     const nextEquipment = equipment ?? state.todayOverride.equipment;
     const pieces = [minutes ? `${minutes} minutes` : null, nextEquipment === "home" ? "no-equipment/home" : nextEquipment].filter(Boolean);
@@ -200,6 +236,25 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
   }
   if (/hide meal prep|remove meal prep/.test(text)) {
     return { patch: { showPrep: false }, reply: "Meal prep is hidden again. Your meals and preferences are unchanged.", changeSummary: "Meal prep hidden" };
+  }
+
+  const portionMatch = text.match(/(?:make|set)\s+(?:my\s+)?(breakfast|lunch|dinner|snack|meal\s*[1-5]).*?(smaller|standard|larger|bigger)/i);
+  if (portionMatch) {
+    const slot = portionMatch[1].replace(/\s+/g, " ").toLowerCase();
+    const requestedPortion = portionMatch[2].toLowerCase() === "bigger" ? "larger" : portionMatch[2].toLowerCase();
+    const meals = buildDayMeals(state, calories, protein);
+    const indexMatch = slot.match(/meal\s*([1-5])/);
+    const meal = indexMatch
+      ? meals[Number(indexMatch[1]) - 1]
+      : meals.find((item) => item.slot.toLowerCase() === slot || item.meal.type.toLowerCase() === slot);
+    if (!meal) {
+      return { patch: {}, reply: `I can change that portion, but I do not currently have a ${slot} in today’s plan.`, clarification: "meal-slot" };
+    }
+    return {
+      patch: { mealPortionOverrides: { ...state.mealPortionOverrides, [meal.sourceMealId]: requestedPortion as "smaller" | "standard" | "larger" } },
+      reply: `Done. I made ${meal.slot.toLowerCase()} ${requestedPortion}. The meal nutrition is recalculated from the stored ingredient data.`,
+      changeSummary: `${meal.slot} portion → ${requestedPortion}`,
+    };
   }
 
   const hateExercise = text.match(/(?:i hate|i dislike|remove|no more)\s+([a-z][a-z\s-]{2,30})(?:\.|$)/i);
