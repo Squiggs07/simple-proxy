@@ -2,7 +2,8 @@ import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { progressionCue } from "@/lib/startHereAdaptation";
 import { exerciseBehaviorScore, mealBehaviorScore } from "@/lib/startHereBehavior";
 import type { TrainingSplit, WorkoutVariant } from "@/lib/startHereWeek";
-import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import { ALL_EXERCISES as EXERCISES } from "@/lib/startHereExerciseLibrary";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
 import { displayLoad } from "@/lib/startHereUnits";
@@ -243,7 +244,7 @@ function exercisePlanScore(exercise: Exercise, state: AppState, variant: Workout
   const focus = exercise.focus.filter((item) => includesLoose(state.focusAreas, item)).length * 3;
   const learned = exerciseBehaviorScore(state, exercise).score;
   const catalogIndex = EXERCISES.findIndex((item) => item.id === exercise.id);
-  const rotation = variant === "B" && catalogIndex % 2 === 1 ? 2 : 0;
+  const rotation = variant === "B" ? (catalogIndex % 2 === 1 ? 2 : 0) : (catalogIndex % 2 === 0 ? 2 : 0);
   return explicit + focus + learned + rotation;
 }
 

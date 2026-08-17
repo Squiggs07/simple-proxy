@@ -1,4 +1,5 @@
-import { EXERCISES, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import type { Exercise, Meal } from "@/lib/startHereCatalog";
+import { ALL_EXERCISES as EXERCISES } from "@/lib/startHereExerciseLibrary";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, ExerciseSwapLog, MealSwapLog } from "@/lib/startHereModels";
 
