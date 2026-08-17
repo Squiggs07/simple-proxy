@@ -1,16 +1,22 @@
-import type { AppState } from "@/lib/startHereModels";
+import type { AppState, WeekTrainingException } from "@/lib/startHereModels";
 
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 export type TrainingSplit = "full-body" | "upper" | "lower";
 export type WorkoutVariant = "A" | "B";
+export type TrainingDayAdjustment = "moved-from" | "moved-to" | "skipped" | null;
 
 export interface TrainingDayPlan {
   date: string;
   day: Weekday;
+  baseScheduled: boolean;
   scheduled: boolean;
   completed: boolean;
   trained: boolean;
+  excused: boolean;
+  adjustment: TrainingDayAdjustment;
+  movedFromDate: string | null;
+  movedToDate: string | null;
   split: TrainingSplit | null;
   variant: WorkoutVariant | null;
   workoutName: string | null;
@@ -28,6 +34,8 @@ export interface TrainingWeekPlan {
   completedTotal: number;
   today: TrainingDayPlan;
   nextTrainingDay: TrainingDayPlan;
+  activeExceptions: WeekTrainingException[];
+  adjustmentSummary: string[];
 }
 
 export interface ObservedTrainingPattern {
@@ -35,6 +43,11 @@ export interface ObservedTrainingPattern {
   sessions: number;
   coverage: number;
   confidence: "moderate" | "strong";
+}
+
+interface EffectiveSlot {
+  sequence: number;
+  movedFromDate: string | null;
 }
 
 function parseDate(date: string) {
@@ -112,23 +125,90 @@ function completedBefore(state: AppState, date: string) {
   return state.workoutLogs.filter((log) => log.completed && log.date < date).length;
 }
 
+export function activeWeekExceptions(state: AppState, weekStart: string) {
+  const latest = new Map<string, WeekTrainingException>();
+  for (const exception of [...state.weekTrainingExceptions]
+    .filter((item) => item.weekStart === weekStart)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    latest.set(exception.fromDate, exception);
+  }
+  return [...latest.values()].sort((a, b) => a.fromDate.localeCompare(b.fromDate));
+}
+
+function dateLabel(date: string) {
+  const value = parseDate(date);
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(value);
+}
+
+function adjustmentSummaries(exceptions: WeekTrainingException[]) {
+  return exceptions.map((exception) => exception.kind === "move" && exception.toDate
+    ? `Moved ${dateLabel(exception.fromDate)} → ${dateLabel(exception.toDate)} for this week.`
+    : `Skipped ${dateLabel(exception.fromDate)} for this week.`);
+}
+
+function effectiveSchedule(
+  baseSequenceByDate: Map<string, number>,
+  exceptions: WeekTrainingException[],
+  weekStart: string,
+  weekEnd: string,
+) {
+  const schedule = new Map<string, EffectiveSlot>(
+    [...baseSequenceByDate.entries()].map(([date, sequence]) => [date, { sequence, movedFromDate: null }]),
+  );
+
+  for (const exception of exceptions) {
+    const sequence = baseSequenceByDate.get(exception.fromDate);
+    if (sequence === undefined) continue;
+
+    if (exception.kind === "move" && exception.toDate) {
+      const target = exception.toDate;
+      const targetInsideWeek = target >= weekStart && target <= weekEnd;
+      const occupiedByAnotherSession = target !== exception.fromDate && schedule.has(target);
+      if (!targetInsideWeek || occupiedByAnotherSession) continue;
+      schedule.delete(exception.fromDate);
+      schedule.set(target, { sequence, movedFromDate: exception.fromDate });
+      continue;
+    }
+
+    if (exception.kind === "skip") schedule.delete(exception.fromDate);
+  }
+  return schedule;
+}
+
 function planDay(
   state: AppState,
   date: string,
-  preferred: Weekday[],
-  sequenceByDate: Map<string, number>,
+  baseSequenceByDate: Map<string, number>,
+  schedule: Map<string, EffectiveSlot>,
+  exceptions: WeekTrainingException[],
 ): TrainingDayPlan {
   const day = weekdayForDate(date);
-  const scheduled = preferred.includes(day);
+  const baseScheduled = baseSequenceByDate.has(date);
+  const slot = schedule.get(date);
   const trained = state.workoutLogs.some((log) => log.completed && log.date === date);
-  const sequence = scheduled ? sequenceByDate.get(date) ?? null : null;
+  const sourceException = exceptions.find((item) => item.fromDate === date) ?? null;
+  const targetException = exceptions.find((item) => item.kind === "move" && item.toDate === date) ?? null;
+  const adjustment: TrainingDayAdjustment = targetException
+    ? "moved-to"
+    : sourceException?.kind === "move"
+      ? "moved-from"
+      : sourceException?.kind === "skip"
+        ? "skipped"
+        : null;
+  const sequence = slot?.sequence ?? null;
   const identity = sequence === null ? null : workoutIdentity(sequence, state.trainingDays);
+  const scheduled = Boolean(slot);
   return {
     date,
     day,
+    baseScheduled,
     scheduled,
     completed: scheduled && trained,
     trained,
+    excused: Boolean(sourceException && !scheduled),
+    adjustment,
+    movedFromDate: targetException?.fromDate ?? slot?.movedFromDate ?? null,
+    movedToDate: sourceException?.kind === "move" ? sourceException.toDate : null,
     split: identity?.split ?? null,
     variant: identity?.variant ?? null,
     workoutName: identity?.name ?? null,
@@ -142,21 +222,25 @@ export function buildTrainingWeek(state: AppState, today: string): TrainingWeekP
   const end = addCalendarDays(start, 6);
   const preferred = normalizePreferredDays(state.preferredDays, state.trainingDays);
   const baseSequence = completedBefore(state, start);
-  const scheduledDates = Array.from({ length: 7 }, (_, index) => addCalendarDays(start, index))
+  const baseScheduledDates = Array.from({ length: 7 }, (_, index) => addCalendarDays(start, index))
     .filter((date) => preferred.includes(weekdayForDate(date)));
-  const sequenceByDate = new Map(scheduledDates.map((date, index) => [date, baseSequence + index]));
-  const days = Array.from({ length: 7 }, (_, index) => planDay(state, addCalendarDays(start, index), preferred, sequenceByDate));
-  const todayPlan = days.find((day) => day.date === today) ?? planDay(state, today, preferred, sequenceByDate);
+  const baseSequenceByDate = new Map(baseScheduledDates.map((date, index) => [date, baseSequence + index]));
+  const exceptions = activeWeekExceptions(state, start);
+  const schedule = effectiveSchedule(baseSequenceByDate, exceptions, start, end);
+  const days = Array.from({ length: 7 }, (_, index) => planDay(state, addCalendarDays(start, index), baseSequenceByDate, schedule, exceptions));
+  const todayPlan = days.find((day) => day.date === today) ?? planDay(state, today, baseSequenceByDate, schedule, exceptions);
 
   let nextTrainingDay = days.find((day) => day.date >= today && day.scheduled && !day.completed) ?? null;
   if (!nextTrainingDay) {
     const nextWeekStart = addCalendarDays(start, 7);
-    const sequenceStart = baseSequence + scheduledDates.length;
+    const nextWeekEnd = addCalendarDays(nextWeekStart, 6);
+    const sequenceStart = baseSequence + schedule.size;
     const futureDates = Array.from({ length: 7 }, (_, index) => addCalendarDays(nextWeekStart, index))
       .filter((date) => preferred.includes(weekdayForDate(date)));
-    const futureSequence = new Map(futureDates.map((date, index) => [date, sequenceStart + index]));
-    const date = futureDates[0];
-    nextTrainingDay = planDay(state, date, preferred, futureSequence);
+    const futureBase = new Map(futureDates.map((date, index) => [date, sequenceStart + index]));
+    const futureSchedule = effectiveSchedule(futureBase, activeWeekExceptions(state, nextWeekStart), nextWeekStart, nextWeekEnd);
+    const date = [...futureSchedule.keys()].sort()[0];
+    nextTrainingDay = planDay(state, date, futureBase, futureSchedule, activeWeekExceptions(state, nextWeekStart));
   }
 
   return {
@@ -169,6 +253,8 @@ export function buildTrainingWeek(state: AppState, today: string): TrainingWeekP
     completedTotal: state.workoutLogs.filter((log) => log.completed && log.date >= start && log.date <= end).length,
     today: todayPlan,
     nextTrainingDay,
+    activeExceptions: exceptions,
+    adjustmentSummary: adjustmentSummaries(exceptions),
   };
 }
 
