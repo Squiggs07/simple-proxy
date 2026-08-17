@@ -1,0 +1,40 @@
+name: Start Here CI
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+concurrency:
+  group: start-here-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint Start Here product code
+        run: npx eslint src/components/StartHereAppV2.tsx src/components/ActiveWorkoutExperience.tsx src/components/BasicProfileFields.tsx src/components/TrainingBaselineFields.tsx src/components/FoodPreferenceEditor.tsx src/components/TodayMealRow.tsx src/components/MealPortionControl.tsx src/components/WeightLogSheet.tsx src/components/MonthlySummarySheet.tsx src/lib/startHereEngine.ts src/lib/startHereModels.ts src/lib/startHereUnits.ts src/lib/startHereCatalog.ts src/lib/startHereMealLibrary.ts src/lib/startHerePlan.ts src/lib/startHereCoach.ts src/lib/startHereCoachClient.ts src/lib/startHereCoachKnowledge.ts src/app/api/start-here-coach/route.ts
+
+      - name: Test planning and safety logic
+        run: npm test
+
+      - name: Production build
+        run: npm run build
