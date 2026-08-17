@@ -43,4 +43,4 @@ jobs:
           git commit -m "Integrate adaptive weekly training plan"
           git push origin HEAD:adaptive-v3-weekly-plan
 
-# retry: corrected helper matcher
+# retry: preserve experienced baseline context
