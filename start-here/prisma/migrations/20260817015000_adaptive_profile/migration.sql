@@ -1,0 +1,20 @@
+-- Extend Profile for the Start Here adaptive rebuild without breaking existing users.
+ALTER TABLE "Profile"
+  ADD COLUMN "trainingDays" INTEGER NOT NULL DEFAULT 3,
+  ADD COLUMN "sessionMinutes" INTEGER NOT NULL DEFAULT 45,
+  ADD COLUMN "equipment" TEXT NOT NULL DEFAULT 'gym',
+  ADD COLUMN "experienceLevel" TEXT NOT NULL DEFAULT 'beginner',
+  ADD COLUMN "confidenceLevel" TEXT NOT NULL DEFAULT 'unsure',
+  ADD COLUMN "likedFoods" TEXT NOT NULL DEFAULT '[]',
+  ADD COLUMN "preferredCuisines" TEXT NOT NULL DEFAULT '[]',
+  ADD COLUMN "mealFormats" TEXT NOT NULL DEFAULT '[]',
+  ADD COLUMN "dislikes" TEXT NOT NULL DEFAULT '[]',
+  ADD COLUMN "neverFoods" TEXT NOT NULL DEFAULT '[]',
+  ADD COLUMN "allergies" TEXT NOT NULL DEFAULT '[]',
+  ADD COLUMN "dietType" TEXT NOT NULL DEFAULT 'none',
+  ADD COLUMN "breakfastStyle" TEXT NOT NULL DEFAULT 'either',
+  ADD COLUMN "cookingMinutes" INTEGER NOT NULL DEFAULT 20,
+  ADD COLUMN "budgetLevel" TEXT NOT NULL DEFAULT 'moderate',
+  ADD COLUMN "varietyPreference" TEXT NOT NULL DEFAULT 'some',
+  ADD COLUMN "mealsPerDay" INTEGER NOT NULL DEFAULT 4,
+  ADD COLUMN "healthFlags" TEXT NOT NULL DEFAULT '[]';
