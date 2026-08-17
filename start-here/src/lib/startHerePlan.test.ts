@@ -62,7 +62,7 @@ describe("Start Here planning", () => {
     expect(workout.exercises.every((item) => item.exercise.stable && item.exercise.beginnerFriendly)).toBe(true);
   });
 
-  it("surfaces the latest completed set as previous performance", () => {
+  it("surfaces the latest completed set as previous performance in the selected unit system", () => {
     const baseWorkout = buildWorkout(INITIAL_STATE);
     const exerciseId = baseWorkout.exercises[0].exercise.id;
     const state = {
@@ -86,7 +86,10 @@ describe("Start Here planning", () => {
         },
       ],
     };
-    const workout = buildWorkout(state);
-    expect(workout.exercises.find((item) => item.exercise.id === exerciseId)?.previous).toBe("72.5 × 8");
+    const imperialWorkout = buildWorkout(state);
+    expect(imperialWorkout.exercises.find((item) => item.exercise.id === exerciseId)?.previous).toBe("160 lb × 8");
+
+    const metricWorkout = buildWorkout({ ...state, unitSystem: "metric" as const });
+    expect(metricWorkout.exercises.find((item) => item.exercise.id === exerciseId)?.previous).toBe("72.5 kg × 8");
   });
 });
