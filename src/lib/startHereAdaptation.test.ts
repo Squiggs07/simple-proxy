@@ -73,7 +73,7 @@ describe("adaptive planning", () => {
     expect(buildAdaptationReview(current, "2026-08-17").recommendations.some((item) => item.scope === "ongoing")).toBe(false);
   });
 
-  it("recognizes repeated top-of-range performance at a comparable load as a progression signal", () => {
+  it("recognizes repeated top-of-range performance as a progression signal", () => {
     const current = state({
       workoutLogs: [
         {
