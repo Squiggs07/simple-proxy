@@ -1,0 +1,44 @@
+name: Start Here Source Fix
+
+on:
+  push:
+    branches:
+      - start-here/lovable-transfer
+
+permissions:
+  contents: write
+
+jobs:
+  fix-jsx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: start-here/lovable-transfer
+
+      - name: Remove extra closing tag
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("start-here/src/components/StartHereAppV2.tsx")
+          text = path.read_text()
+          old = '<div className="loading-bar h-full rounded-full bg-[#17483F]" /></div></div></div>\n          </section>'
+          new = '<div className="loading-bar h-full rounded-full bg-[#17483F]" /></div></div>\n          </section>'
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+              print("patched")
+          else:
+              print("patch already applied")
+
+      - name: Commit patch if needed
+        run: |
+          if git diff --quiet; then
+            echo "No source patch needed"
+            exit 0
+          fi
+          git config user.name "Start Here CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add start-here/src/components/StartHereAppV2.tsx
+          git commit -m "Fix Start Here loading state JSX"
+          git push origin HEAD:start-here/lovable-transfer
