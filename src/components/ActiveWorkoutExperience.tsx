@@ -136,6 +136,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
                     <p className="card-kicker">{exerciseIndex + 1} · {item.exercise.focus.join(" + ")}</p>
                     <h2 className="mt-1 text-lg font-semibold">{item.exercise.name}</h2>
                     <p className="mt-1 text-xs leading-5 text-[#77817D]">{item.exercise.cue}</p>
+                    {item.progression && <p className="mt-2 rounded-xl bg-[#ECF3EE] px-3 py-2 text-[11px] leading-5 text-[#526860]"><strong>Adaptive progression:</strong> {item.progression}</p>}
                   </div>
                   <button onClick={() => setSwapFor(item.exercise.id)} className="soft-button"><SwapIcon /> Swap</button>
                 </div>

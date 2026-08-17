@@ -1,4 +1,5 @@
 import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
+import { progressionCue } from "@/lib/startHereAdaptation";
 import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
@@ -24,6 +25,7 @@ export interface WorkoutExercise {
   sets: number;
   reps: string;
   previous: string;
+  progression: string | null;
 }
 
 export interface WorkoutPlan {
@@ -259,6 +261,7 @@ export function buildWorkout(state: AppState): WorkoutPlan {
       sets: index >= 4 ? 2 : baseSets + (consistentlyTrained && index < 2 && minutes >= 60 ? 1 : 0),
       reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : repTarget,
       previous: previousPerformance(state, exercise.id),
+      progression: progressionCue(state, exercise.id),
     })),
     note: olderBeginner
       ? "Stable movements, lower starting volume, and a little balance work. The goal is confidence and capability."

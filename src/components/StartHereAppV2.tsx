@@ -10,6 +10,7 @@ import { MonthlySummarySheet } from "@/components/MonthlySummarySheet";
 import { TodayMealRow } from "@/components/TodayMealRow";
 import { WeightLogSheet } from "@/components/WeightLogSheet";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
+import { buildAdaptationReview, type AdaptationRecommendation } from "@/lib/startHereAdaptation";
 import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
@@ -36,6 +37,7 @@ import {
   type DietType,
   type Equipment,
   type MealPortion,
+  type Readiness,
   type Variety,
 } from "@/lib/startHereModels";
 
@@ -130,10 +132,18 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
-        if (saved) setState(mergeStoredState(JSON.parse(saved)));
+        const saved = localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const merged = saved ? mergeStoredState(JSON.parse(saved)) : INITIAL_STATE;
+        const date = todayKey();
+        setState(merged.currentDay === date ? merged : {
+          ...merged,
+          currentDay: date,
+          eatenMealIds: [],
+          swappedMealIds: {},
+          todayOverride: { minutes: null, equipment: null, note: null },
+        });
       } catch {
-        setState(INITIAL_STATE);
+        setState({ ...INITIAL_STATE, currentDay: todayKey() });
       } finally {
         setReady(true);
       }
@@ -142,7 +152,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v6", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v7", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -163,6 +173,7 @@ export function StartHereAppV2() {
     };
   }, [baseWorkout, exerciseSwaps, state]);
   const progressReview = useMemo(() => reviewProgress(state), [state]);
+  const adaptationReview = useMemo(() => buildAdaptationReview(state, state.currentDay || todayKey()), [state]);
 
   function patch(update: Partial<AppState>) {
     setState((current) => ({ ...current, ...update }));
@@ -207,7 +218,41 @@ export function StartHereAppV2() {
   const swapSource = swapPlannedMeal?.meal ?? (swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? null : null);
 
   function toggleMealEaten(id: string) {
-    patch({ eatenMealIds: state.eatenMealIds.includes(id) ? state.eatenMealIds.filter((item) => item !== id) : [...state.eatenMealIds, id] });
+    const date = todayKey();
+    const alreadyEaten = state.eatenMealIds.includes(id);
+    patch({
+      eatenMealIds: alreadyEaten ? state.eatenMealIds.filter((item) => item !== id) : [...state.eatenMealIds, id],
+      mealLogs: alreadyEaten
+        ? state.mealLogs.filter((item) => !(item.date === date && item.mealId === id))
+        : [...state.mealLogs.filter((item) => !(item.date === date && item.mealId === id)), { date, mealId: id }],
+    });
+  }
+
+  function saveReadiness(readiness: Readiness) {
+    const date = todayKey();
+    setState((current) => {
+      const readinessCheckIns = [...current.readinessCheckIns.filter((item) => item.date !== date), { date, readiness }];
+      let next: AppState = { ...current, readinessCheckIns };
+      if (readiness === "low") {
+        const recovery = buildAdaptationReview(next, date).recommendations.find((item) => item.kind === "recovery");
+        if (recovery) next = { ...next, ...recovery.patch };
+      } else if (current.todayOverride.note === "Adjusted from today's readiness check-in.") {
+        next = { ...next, todayOverride: { ...current.todayOverride, minutes: null, note: null } };
+      }
+      return next;
+    });
+  }
+
+  function applyAdaptiveRecommendation(recommendation: AdaptationRecommendation) {
+    setUndoSnapshot(state);
+    const coachMessage = {
+      id: `coach-adapt-${Date.now()}`,
+      role: "coach" as const,
+      text: `I adapted the plan: ${recommendation.title}. ${recommendation.reason}`,
+      changeSummary: recommendation.title,
+      createdAt: new Date().toISOString(),
+    };
+    setState((current) => ({ ...current, ...recommendation.patch, coachHistory: [...current.coachHistory, coachMessage] }));
   }
 
   function updateMealPortion(sourceMealId: string, portion: MealPortion) {
@@ -347,7 +392,7 @@ export function StartHereAppV2() {
       <div className="start-shell">
         <main className="px-5 pb-28 pt-[max(18px,env(safe-area-inset-top))]">
           {tab === "today" && (
-            <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
+            <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
           )}
           {tab === "eat" && (
             <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
@@ -367,7 +412,7 @@ export function StartHereAppV2() {
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
       {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
@@ -576,13 +621,21 @@ function PageHeader({ eyebrow, title, copy, action }: { eyebrow?: string; title:
   return <header className="mb-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className="text-[34px] font-semibold leading-[1.04] tracking-[-.04em]">{title}</h1></div>{action}</div>{copy && <p className="mt-2 text-[15px] leading-6 text-[#68736F]">{copy}</p>}</header>;
 }
 
-function TodayView({ state, targets, meals, workout, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {
+function TodayView({ state, targets, meals, workout, adaptation, setReadiness, applyAdaptation, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {
   const completedToday = state.workoutLogs.some((log) => log.date === todayKey() && log.completed);
   const proteinLogged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id)).reduce((sum, item) => sum + item.protein, 0);
   const nextMeal = meals.find((item) => !state.eatenMealIds.includes(item.meal.id)) ?? meals[0];
   const nextIsWorkout = !completedToday;
+  const readiness = adaptation.latestReadiness?.readiness ?? null;
+  const ongoingAdaptation = adaptation.recommendations.find((item) => item.scope === "ongoing");
   return <div>
     <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy="One useful thing at a time. You do not need a perfect day." action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
+
+    <section className="dashboard-card mb-3">
+      <div className="flex items-start justify-between gap-3"><div><p className="card-kicker">10-SECOND CHECK-IN</p><p className="mt-1 text-sm font-semibold">How ready do you feel today?</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">This only changes today unless a longer pattern shows up.</p></div><Icon name="spark" size={18} /></div>
+      <div className="mt-3 grid grid-cols-3 gap-2">{([['low','Running low'],['normal','Normal'],['high','Ready']] as const).map(([value, label]) => <button key={value} onClick={() => setReadiness(value)} className={cx("tiny-button justify-center", readiness === value && "tiny-active")}>{label}</button>)}</div>
+      {state.todayOverride.note === "Adjusted from today's readiness check-in." && <p className="mt-3 rounded-xl bg-[#ECF3EE] p-3 text-xs leading-5 text-[#526860]">I shortened today’s workout from your check-in. Tomorrow starts fresh.</p>}
+    </section>
 
     <section className="hero-card">
       <div className="flex items-center justify-between"><span className="hero-pill">NEXT STEP</span><span className="flex items-center gap-1.5 text-xs font-semibold text-[#68736F]"><Icon name="clock" size={15} />{nextIsWorkout ? workout.minutes : nextMeal?.meal.prepMinutes ?? 10} min</span></div>
@@ -597,6 +650,8 @@ function TodayView({ state, targets, meals, workout, setTab, onStartWorkout, onM
     </section>
 
     <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${state.workoutLogs.filter((log) => log.completed).length} sessions logged`} /></div>
+
+    {ongoingAdaptation && <section className="mt-3 rounded-[24px] bg-[#ECF3EE] p-4"><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="spark" size={20} /></span><div className="flex-1"><p className="text-sm font-semibold">Your plan noticed a pattern</p><p className="mt-1 text-sm leading-5 text-[#596963]">{ongoingAdaptation.reason}</p><button onClick={() => applyAdaptation(ongoingAdaptation)} className="soft-button mt-3">Apply: {ongoingAdaptation.title}</button></div></div></section>}
 
     {state.detailLevel !== "simple" && <section className="dashboard-card mt-3"><div className="flex items-center justify-between"><div><div className="card-kicker">STARTING TARGET</div><p className="mt-2 text-xl font-semibold">{state.hideCalories ? "Calories hidden" : `${targets.calories.toLocaleString()} cal`}</p><p className="mt-1 text-xs text-[#818A87]">Maintenance estimate: {targets.maintenanceCalories.toLocaleString()}</p></div><button onClick={() => setTab("coach")} className="soft-button">Adjust</button></div></section>}
 

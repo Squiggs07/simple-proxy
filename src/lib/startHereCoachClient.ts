@@ -1,4 +1,5 @@
 import type { AppState } from "@/lib/startHereModels";
+import { buildAdaptationReview } from "@/lib/startHereAdaptation";
 import type { currentTargets } from "@/lib/startHerePlan";
 
 type Targets = ReturnType<typeof currentTargets>;
@@ -17,6 +18,7 @@ export async function askCoach(
 ): Promise<CoachAIResponse> {
   const trimmed = message.trim();
   if (!trimmed) return { available: false };
+  const adaptation = buildAdaptationReview(state, state.currentDay || new Date().toISOString().slice(0, 10));
 
   try {
     const response = await fetch("/api/start-here-coach", {
@@ -49,8 +51,11 @@ export async function askCoach(
           budget: state.budget,
           healthFlags: state.healthFlags.slice(0, 10),
           hideCalories: state.hideCalories,
+          readiness: adaptation.latestReadiness?.readiness ?? null,
+          workoutAdherence: adaptation.workoutAdherence,
+          mealAdherence: adaptation.mealAdherence,
         },
-        history: state.coachHistory.slice(-8).map((item) => ({ role: item.role, text: item.text })),
+        history: state.coachHistory.slice(-6).map((item) => ({ role: item.role, text: item.text })),
       }),
     });
 
