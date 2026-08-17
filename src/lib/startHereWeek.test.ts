@@ -72,6 +72,95 @@ describe("weekly training planner", () => {
     expect(week.today.scheduled).toBe(false);
   });
 
+  it("moves one scheduled workout without changing the normal weekday preference", () => {
+    const current = state({
+      trainingDays: 3,
+      preferredDays: ["Mon", "Wed", "Fri"],
+      weekTrainingExceptions: [{
+        id: "move-mon",
+        weekStart: "2026-08-17",
+        kind: "move",
+        fromDate: "2026-08-17",
+        toDate: "2026-08-18",
+        createdAt: "2026-08-17T12:00:00.000Z",
+        note: "Work conflict",
+      }],
+    });
+    const week = buildTrainingWeek(current, "2026-08-17");
+    const monday = week.days.find((day) => day.date === "2026-08-17")!;
+    const tuesday = week.days.find((day) => day.date === "2026-08-18")!;
+    expect(monday.scheduled).toBe(false);
+    expect(monday.excused).toBe(true);
+    expect(monday.adjustment).toBe("moved-from");
+    expect(monday.movedToDate).toBe("2026-08-18");
+    expect(tuesday.scheduled).toBe(true);
+    expect(tuesday.adjustment).toBe("moved-to");
+    expect(tuesday.movedFromDate).toBe("2026-08-17");
+    expect(tuesday.workoutName).toBe("Full Body A");
+    expect(week.scheduledCount).toBe(3);
+    expect(week.preferredDays).toEqual(["Mon", "Wed", "Fri"]);
+    expect(week.nextTrainingDay.date).toBe("2026-08-18");
+  });
+
+  it("skips one session as an excused week-only change rather than reducing the permanent frequency", () => {
+    const current = state({
+      trainingDays: 3,
+      preferredDays: ["Mon", "Wed", "Fri"],
+      weekTrainingExceptions: [{
+        id: "skip-fri",
+        weekStart: "2026-08-17",
+        kind: "skip",
+        fromDate: "2026-08-21",
+        toDate: null,
+        createdAt: "2026-08-17T12:00:00.000Z",
+        note: null,
+      }],
+    });
+    const week = buildTrainingWeek(current, "2026-08-17");
+    const friday = week.days.find((day) => day.date === "2026-08-21")!;
+    expect(friday.baseScheduled).toBe(true);
+    expect(friday.scheduled).toBe(false);
+    expect(friday.excused).toBe(true);
+    expect(friday.adjustment).toBe("skipped");
+    expect(week.scheduledCount).toBe(2);
+    expect(week.preferredDays).toEqual(["Mon", "Wed", "Fri"]);
+  });
+
+  it("lets the newest exception replace an earlier move for the same original workout", () => {
+    const current = state({
+      trainingDays: 3,
+      preferredDays: ["Mon", "Wed", "Fri"],
+      weekTrainingExceptions: [
+        { id: "old", weekStart: "2026-08-17", kind: "move", fromDate: "2026-08-17", toDate: "2026-08-18", createdAt: "2026-08-17T09:00:00.000Z", note: null },
+        { id: "new", weekStart: "2026-08-17", kind: "move", fromDate: "2026-08-17", toDate: "2026-08-20", createdAt: "2026-08-17T10:00:00.000Z", note: null },
+      ],
+    });
+    const week = buildTrainingWeek(current, "2026-08-17");
+    expect(week.days.find((day) => day.date === "2026-08-18")?.scheduled).toBe(false);
+    expect(week.days.find((day) => day.date === "2026-08-20")?.scheduled).toBe(true);
+    expect(week.activeExceptions).toHaveLength(1);
+  });
+
+  it("keeps week-only exceptions scoped to their own Monday-Sunday window", () => {
+    const current = state({
+      trainingDays: 3,
+      preferredDays: ["Mon", "Wed", "Fri"],
+      weekTrainingExceptions: [{
+        id: "move-mon",
+        weekStart: "2026-08-17",
+        kind: "move",
+        fromDate: "2026-08-17",
+        toDate: "2026-08-18",
+        createdAt: "2026-08-17T12:00:00.000Z",
+        note: null,
+      }],
+    });
+    const nextWeek = buildTrainingWeek(current, "2026-08-24");
+    expect(nextWeek.activeExceptions).toHaveLength(0);
+    expect(nextWeek.preferredDays).toEqual(["Mon", "Wed", "Fri"]);
+    expect(nextWeek.days.find((day) => day.day === "Mon")?.scheduled).toBe(true);
+  });
+
   it("learns a consistent real-world weekday pattern instead of clinging to the stated schedule", () => {
     const actualDates = [
       "2026-07-27", "2026-07-29", "2026-08-01",
