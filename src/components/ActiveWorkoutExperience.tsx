@@ -15,14 +15,14 @@ interface Props {
   workout: WorkoutPlan;
   state: AppState;
   onClose: () => void;
-  onSwap: (exerciseId: string, replacementId: string) => void;
+  onSwap: (slotExerciseId: string, currentExerciseId: string, replacementId: string) => void;
   onFinish: (exercises: ExerciseLog[]) => void;
 }
 
 function makeDrafts(workout: WorkoutPlan): Record<string, SetDraft[]> {
   return Object.fromEntries(
     workout.exercises.map((item) => [
-      item.exercise.id,
+      item.sourceExerciseId,
       Array.from({ length: item.sets }, () => ({ weight: "", reps: "", complete: false })),
     ]),
   );
@@ -59,18 +59,18 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
   const selected = swapFor ? workout.exercises.find((item) => item.exercise.id === swapFor) : undefined;
   const alternatives = selected ? alternativeExercises(selected.exercise.id, state) : [];
 
-  function updateSet(exerciseId: string, index: number, patch: Partial<SetDraft>) {
+  function updateSet(slotExerciseId: string, index: number, patch: Partial<SetDraft>) {
     setDrafts((current) => {
-      const rows = [...(current[exerciseId] ?? [])];
+      const rows = [...(current[slotExerciseId] ?? [])];
       rows[index] = { ...(rows[index] ?? { weight: "", reps: "", complete: false }), ...patch };
-      return { ...current, [exerciseId]: rows };
+      return { ...current, [slotExerciseId]: rows };
     });
   }
 
-  function toggleComplete(exerciseId: string, index: number) {
-    const current = drafts[exerciseId]?.[index];
+  function toggleComplete(slotExerciseId: string, index: number) {
+    const current = drafts[slotExerciseId]?.[index];
     const nextComplete = !current?.complete;
-    updateSet(exerciseId, index, { complete: nextComplete });
+    updateSet(slotExerciseId, index, { complete: nextComplete });
     if (nextComplete) setRestSeconds(90);
   }
 
@@ -78,7 +78,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
     const exercises: ExerciseLog[] = workout.exercises.map((item) => ({
       exerciseId: item.exercise.id,
       sets: Array.from({ length: item.sets }, (_, index): WorkoutSetLog => {
-        const row = drafts[item.exercise.id]?.[index];
+        const row = drafts[item.sourceExerciseId]?.[index];
         const reps = row?.reps.trim() ? Number(row.reps) : null;
         const weight = row?.weight.trim() ? inputWeightToKg(Number(row.weight), state.unitSystem) : null;
         return {
@@ -130,7 +130,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
 
           <div className="space-y-3">
             {workout.exercises.map((item, exerciseIndex) => (
-              <article key={item.exercise.id} className="active-exercise">
+              <article key={item.sourceExerciseId} className="active-exercise">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="card-kicker">{exerciseIndex + 1} · {item.exercise.focus.join(" + ")}</p>
@@ -146,14 +146,14 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
                 </div>
 
                 {Array.from({ length: item.sets }, (_, index) => {
-                  const row = drafts[item.exercise.id]?.[index] ?? { weight: "", reps: "", complete: false };
+                  const row = drafts[item.sourceExerciseId]?.[index] ?? { weight: "", reps: "", complete: false };
                   return (
                     <div key={index} className="grid min-h-[56px] grid-cols-[34px_1fr_64px_64px_42px] items-center gap-2 border-t border-[#F0ECE6]">
                       <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-[#F6F4EF] text-[11px] font-extrabold text-[#69736F]">{index + 1}</span>
                       <span className="text-center text-[10px] leading-4 text-[#6E7874]">{item.previous}</span>
                       <input
                         value={row.weight}
-                        onChange={(event) => updateSet(item.exercise.id, index, { weight: event.target.value })}
+                        onChange={(event) => updateSet(item.sourceExerciseId, index, { weight: event.target.value })}
                         inputMode="decimal"
                         aria-label={`${item.exercise.name} set ${index + 1} weight in ${state.unitSystem === "imperial" ? "pounds" : "kilograms"}`}
                         placeholder="—"
@@ -161,13 +161,13 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
                       />
                       <input
                         value={row.reps}
-                        onChange={(event) => updateSet(item.exercise.id, index, { reps: event.target.value })}
+                        onChange={(event) => updateSet(item.sourceExerciseId, index, { reps: event.target.value })}
                         inputMode="numeric"
                         aria-label={`${item.exercise.name} set ${index + 1} reps`}
                         placeholder="10"
                         className="h-10 min-w-0 rounded-xl border border-[#E6E0D6] bg-[#FCFAF6] px-2 text-center text-xs font-semibold outline-none focus:border-[#6E9084]"
                       />
-                      <button onClick={() => toggleComplete(item.exercise.id, index)} className={`set-check ${row.complete ? "set-check-done" : ""}`} aria-label={`Mark ${item.exercise.name} set ${index + 1} complete`}>
+                      <button onClick={() => toggleComplete(item.sourceExerciseId, index)} className={`set-check ${row.complete ? "set-check-done" : ""}`} aria-label={`Mark ${item.exercise.name} set ${index + 1} complete`}>
                         {row.complete && <CheckIcon />}
                       </button>
                     </div>
@@ -193,7 +193,7 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
             <p className="mt-3 text-sm leading-6 text-[#68736F]">Same movement role, filtered to your current equipment and exercise dislikes.</p>
             <div className="mt-4 space-y-2">
               {alternatives.map((alt) => (
-                <button key={alt.id} onClick={() => { onSwap(selected.exercise.id, alt.id); setSwapFor(null); }} className="swap-option">
+                <button key={alt.id} onClick={() => { onSwap(selected.sourceExerciseId, selected.exercise.id, alt.id); setSwapFor(null); }} className="swap-option">
                   <span><strong>{alt.name}</strong><small>{alt.focus.join(" + ")} · {alt.stable ? "stable setup" : "free movement"}</small></span>
                   <span aria-hidden>›</span>
                 </button>
