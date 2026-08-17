@@ -1,0 +1,180 @@
+import { calculateTargets, smoothedWeightTrend, validateCalorieTarget } from "@/lib/startHereEngine";
+import type { AppState, ReadinessCheckIn, WorkoutSessionLog } from "@/lib/startHereModels";
+
+export interface AdaptationRecommendation {
+  id: string;
+  kind: "recovery" | "schedule" | "nutrition";
+  scope: "today" | "ongoing";
+  title: string;
+  reason: string;
+  confidence: "early" | "moderate" | "strong";
+  patch: Partial<AppState>;
+}
+
+export interface AdaptationReview {
+  latestReadiness: ReadinessCheckIn | null;
+  workoutAdherence: number | null;
+  mealAdherence: number | null;
+  recommendations: AdaptationRecommendation[];
+}
+
+function parseDate(date: string) {
+  return Date.parse(`${date}T00:00:00Z`);
+}
+
+function diffDays(later: string, earlier: string) {
+  return Math.max(0, Math.round((parseDate(later) - parseDate(earlier)) / 86_400_000));
+}
+
+function daysAgo(today: string, days: number) {
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function latestReadiness(state: AppState, today: string): ReadinessCheckIn | null {
+  return [...state.readinessCheckIns].reverse().find((item) => item.date === today) ?? null;
+}
+
+export function workoutAdherence(state: AppState, today: string, windowDays = 14): number | null {
+  if (!state.onboardingCompletedAt) return null;
+  const onboardingDate = state.onboardingCompletedAt.slice(0, 10);
+  const start = onboardingDate > daysAgo(today, windowDays - 1) ? onboardingDate : daysAgo(today, windowDays - 1);
+  const elapsed = diffDays(today, start) + 1;
+  if (elapsed < 7) return null;
+  const expected = Math.max(1, (state.trainingDays * elapsed) / 7);
+  const completed = state.workoutLogs.filter((log) => log.completed && log.date >= start && log.date <= today).length;
+  return Math.min(1.5, completed / expected);
+}
+
+export function mealAdherence(state: AppState, today: string, windowDays = 10): number | null {
+  const start = daysAgo(today, windowDays - 1);
+  const logs = state.mealLogs.filter((log) => log.date >= start && log.date <= today);
+  const days = [...new Set(logs.map((log) => log.date))].sort();
+  if (days.length < 4) return null;
+  const eaten = logs.length;
+  const expected = Math.max(1, days.length * state.mealsPerDay);
+  return Math.min(1, eaten / expected);
+}
+
+function baseCalories(state: AppState) {
+  return calculateTargets({
+    goal: state.goal,
+    age: state.age,
+    sexEquation: state.sexEquation,
+    heightCm: state.heightCm,
+    weightKg: state.weightKg,
+    activity: state.activity,
+    healthFlag: state.healthFlags.length > 0,
+  });
+}
+
+function nutritionRecommendation(state: AppState, mealRate: number | null): AdaptationRecommendation | null {
+  if (mealRate === null || mealRate < 0.65 || state.weightLog.length < 10) return null;
+  const sorted = [...state.weightLog].sort((a, b) => a.date.localeCompare(b.date));
+  const span = diffDays(sorted[sorted.length - 1].date, sorted[0].date);
+  if (span < 10) return null;
+  const trend = smoothedWeightTrend(sorted, 7);
+  const latest = trend[trend.length - 1];
+  const reference = [...trend].reverse().find((point) => diffDays(latest.date, point.date) >= 7) ?? trend[0];
+  const weeklyChange = latest.trend - reference.trend;
+  let delta = 0;
+  let reason = "";
+
+  if (state.goal === "lose" && weeklyChange > -0.15) {
+    delta = -100;
+    reason = "Your smoothed weight trend has been flatter than the current fat-loss pace, and your recent food logging is consistent enough to make a small test reasonable.";
+  } else if (state.goal === "lose" && weeklyChange < -0.9) {
+    delta = 100;
+    reason = "Your smoothed trend is moving quickly. A small increase can make the plan easier to sustain while still keeping the direction intact.";
+  } else if (state.goal === "gain" && weeklyChange < 0.05) {
+    delta = 100;
+    reason = "Your smoothed trend has not moved up despite reasonably consistent food logging, so a small increase is a useful next test.";
+  } else if (state.goal === "gain" && weeklyChange > 0.7) {
+    delta = -100;
+    reason = "Your smoothed trend is rising faster than a cautious muscle-gain phase needs, so a small reduction is reasonable.";
+  }
+
+  if (!delta) return null;
+  const targets = baseCalories(state);
+  const current = state.calorieOverride ?? targets.calories;
+  const requested = current + delta;
+  const safe = validateCalorieTarget(requested, {
+    goal: state.goal,
+    age: state.age,
+    sexEquation: state.sexEquation,
+    heightCm: state.heightCm,
+    weightKg: state.weightKg,
+    activity: state.activity,
+    healthFlag: state.healthFlags.length > 0,
+  }, targets.maintenanceCalories);
+  if (safe === current) return null;
+  return {
+    id: `nutrition-${delta > 0 ? "up" : "down"}`,
+    kind: "nutrition",
+    scope: "ongoing",
+    title: `${delta > 0 ? "Add" : "Remove"} about 100 calories`,
+    reason,
+    confidence: "strong",
+    patch: { calorieOverride: safe },
+  };
+}
+
+export function buildAdaptationReview(state: AppState, today: string): AdaptationReview {
+  const readiness = latestReadiness(state, today);
+  const workoutRate = workoutAdherence(state, today);
+  const mealRate = mealAdherence(state, today);
+  const recommendations: AdaptationRecommendation[] = [];
+
+  if (readiness?.readiness === "low") {
+    const reducedMinutes = Math.max(15, Math.round((state.sessionMinutes * 0.75) / 5) * 5);
+    if ((state.todayOverride.minutes ?? state.sessionMinutes) > reducedMinutes) {
+      recommendations.push({
+        id: "recovery-easier-today",
+        kind: "recovery",
+        scope: "today",
+        title: `Make today a ${reducedMinutes}-minute session`,
+        reason: "You marked today as low readiness. Keeping the habit while trimming volume is usually more useful than forcing the normal session.",
+        confidence: "moderate",
+        patch: { todayOverride: { ...state.todayOverride, minutes: reducedMinutes, note: "Adjusted from today's readiness check-in." } },
+      });
+    }
+  }
+
+  if (workoutRate !== null && workoutRate < 0.6 && state.trainingDays > 1) {
+    recommendations.push({
+      id: "schedule-less-often",
+      kind: "schedule",
+      scope: "ongoing",
+      title: `Try ${state.trainingDays - 1} training days instead of ${state.trainingDays}`,
+      reason: "Your recent completed-workout rate is below the schedule you chose. A smaller plan you complete is more useful than a larger plan you keep missing.",
+      confidence: "moderate",
+      patch: { trainingDays: state.trainingDays - 1 },
+    });
+  }
+
+  const nutrition = nutritionRecommendation(state, mealRate);
+  if (nutrition) recommendations.push(nutrition);
+
+  return { latestReadiness: readiness, workoutAdherence: workoutRate, mealAdherence: mealRate, recommendations };
+}
+
+function completedExerciseSets(session: WorkoutSessionLog, exerciseId: string) {
+  return session.exercises.find((item) => item.exerciseId === exerciseId)?.sets.filter((set) => set.complete) ?? [];
+}
+
+export function progressionCue(state: AppState, exerciseId: string): string | null {
+  const sessions = state.workoutLogs.filter((session) => completedExerciseSets(session, exerciseId).length > 0).slice(-2);
+  if (sessions.length < 2) return null;
+  const recentSets = completedExerciseSets(sessions[1], exerciseId);
+  const priorSets = completedExerciseSets(sessions[0], exerciseId);
+  if (recentSets.length < 2 || priorSets.length < 2) return null;
+  const recentReps = recentSets.map((set) => set.reps).filter((value): value is number => value !== null);
+  const priorReps = priorSets.map((set) => set.reps).filter((value): value is number => value !== null);
+  if (!recentReps.length || !priorReps.length) return null;
+  const recentAvg = recentReps.reduce((sum, value) => sum + value, 0) / recentReps.length;
+  const priorAvg = priorReps.reduce((sum, value) => sum + value, 0) / priorReps.length;
+  if (recentAvg >= 10 && priorAvg >= 9) return "You handled the top of the rep range twice. If warm-ups feel normal, try a small load increase today.";
+  if (recentAvg < priorAvg - 2) return "Performance dipped last time. Keep the load steady today and focus on clean reps instead of forcing progression.";
+  return null;
+}
