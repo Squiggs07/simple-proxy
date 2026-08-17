@@ -8,6 +8,7 @@ export type Budget = "low" | "medium" | "flexible";
 export type Variety = "repeat" | "some" | "lots";
 export type DietType = "none" | "vegetarian" | "vegan";
 export type MealPortion = "smaller" | "standard" | "larger";
+export type UnitSystem = "imperial" | "metric";
 export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
 
 export interface TodayOverride {
@@ -47,6 +48,7 @@ export interface CoachMessage {
 export interface AppState {
   version: number;
   onboarded: boolean;
+  unitSystem: UnitSystem;
   goal: Goal;
   age: number;
   sexEquation: SexEquation;
@@ -92,8 +94,9 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 4,
+  version: 5,
   onboarded: false,
+  unitSystem: "imperial",
   goal: "unsure",
   age: 25,
   sexEquation: "male",
@@ -168,6 +171,6 @@ export function mergeStoredState(value: unknown): AppState {
     coachHistory: Array.isArray(stored.coachHistory) && stored.coachHistory.length
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
-    version: 4,
+    version: 5,
   };
 }
