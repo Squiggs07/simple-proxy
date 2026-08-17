@@ -42,3 +42,5 @@ jobs:
           git add src/components/StartHereAppV2.tsx src/lib/startHerePlan.ts src/lib/startHereAdaptation.ts src/lib/startHereCoach.ts src/lib/startHereCoachClient.ts src/app/api/start-here-coach/route.ts src/lib/startHerePlan.test.ts src/lib/startHereAdaptation.test.ts
           git commit -m "Integrate adaptive weekly training plan"
           git push origin HEAD:adaptive-v3-weekly-plan
+
+# retry: corrected helper matcher
