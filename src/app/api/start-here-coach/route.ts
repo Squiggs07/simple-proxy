@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { rateLimit } from "@/lib/rate-limit";
 
 const baselineSchema = z.object({
   benchKg: z.number().nullable(),
@@ -67,7 +68,16 @@ const canonicalExamples = [
   "I want to lose fat",
 ];
 
+function requesterKey(request: Request) {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("x-real-ip") || "anonymous";
+}
+
 export async function POST(request: Request) {
+  if (!rateLimit(`coach:${requesterKey(request)}`, 30, 10 * 60 * 1000)) {
+    return NextResponse.json({ available: false, reason: "rate_limited" }, { status: 429 });
+  }
+
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ available: false, reason: "invalid_request" }, { status: 400 });
