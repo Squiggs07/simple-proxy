@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { ActiveWorkoutExperience } from "@/components/ActiveWorkoutExperience";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
@@ -109,7 +110,6 @@ export function StartHereAppV2() {
   const [showPrep, setShowPrep] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState(false);
   const [exerciseSwaps, setExerciseSwaps] = useState<Record<string, string>>({});
-  const [setChecks, setSetChecks] = useState<Record<string, boolean[]>>({});
   const [coachText, setCoachText] = useState("");
   const [undoSnapshot, setUndoSnapshot] = useState<AppState | null>(null);
   const [building, setBuilding] = useState(false);
@@ -193,31 +193,17 @@ export function StartHereAppV2() {
   }
 
   function startWorkout() {
-    const next: Record<string, boolean[]> = {};
-    for (const item of effectiveWorkout.exercises) next[item.exercise.id] = Array(item.sets).fill(false) as boolean[];
-    setSetChecks(next);
     setActiveWorkout(true);
   }
 
-  function toggleSet(exerciseId: string, index: number) {
-    setSetChecks((current) => {
-      const values = [...(current[exerciseId] ?? [])];
-      values[index] = !values[index];
-      return { ...current, [exerciseId]: values };
-    });
-  }
-
-  function finishWorkout() {
+  function finishWorkout(exercises: AppState["workoutLogs"][number]["exercises"]) {
     const log = {
       id: `workout-${Date.now()}`,
       date: todayKey(),
       workoutName: effectiveWorkout.name,
       minutes: effectiveWorkout.minutes,
       completed: true,
-      exercises: effectiveWorkout.exercises.map((item) => ({
-        exerciseId: item.exercise.id,
-        sets: Array.from({ length: item.sets }, (_, index) => ({ reps: null, weight: null, complete: Boolean(setChecks[item.exercise.id]?.[index]) })),
-      })),
+      exercises,
     };
     patch({ workoutLogs: [...state.workoutLogs, log], todayOverride: { minutes: null, equipment: null, note: null } });
     setActiveWorkout(false);
@@ -273,13 +259,11 @@ export function StartHereAppV2() {
 
   if (activeWorkout) {
     return (
-      <ActiveWorkoutView
+      <ActiveWorkoutExperience
         workout={effectiveWorkout}
-        setChecks={setChecks}
-        toggleSet={toggleSet}
-        finish={finishWorkout}
-        close={() => setActiveWorkout(false)}
         state={state}
+        onClose={() => setActiveWorkout(false)}
+        onFinish={finishWorkout}
         onSwap={(exerciseId, replacementId) => setExerciseSwaps((current) => ({ ...current, [exerciseId]: replacementId }))}
       />
     );
@@ -585,18 +569,6 @@ function TrainView({ state, workout, startWorkout, setTab }: { state: AppState; 
     <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="This week" value={`${Math.min(completed, state.trainingDays)} of ${state.trainingDays} sessions`} /><MiniCard label="Session length" value={`${workout.minutes} minutes`} /></div>
     <button onClick={() => setTab("coach")} className="coach-inline mt-3"><Icon name="coach" size={18} /><span><strong>Need to change today?</strong><small>“No equipment” · “Only 20 minutes”</small></span><Icon name="chevron" size={16} /></button>
   </div>;
-}
-
-function ActiveWorkoutView({ workout, setChecks, toggleSet, finish, close, state, onSwap }: { workout: WorkoutPlan; setChecks: Record<string, boolean[]>; toggleSet: (exerciseId: string, index: number) => void; finish: () => void; close: () => void; state: AppState; onSwap: (exerciseId: string, replacementId: string) => void }) {
-  const [swapFor, setSwapFor] = useState<string | null>(null);
-  const selected = swapFor ? workout.exercises.find((item) => item.exercise.id === swapFor) : undefined;
-  const alternatives = selected ? alternativeExercises(selected.exercise.id, state) : [];
-  const completedSets = Object.values(setChecks).flat().filter(Boolean).length;
-  const totalSets = workout.exercises.reduce((sum, item) => sum + item.sets, 0);
-  return <div className="min-h-dvh bg-[#F7F4EE] text-[#1D2926]"><div className="start-shell pb-8"><div className="sticky top-0 z-20 border-b border-[#E6E0D6] bg-[#F7F4EE]/95 px-5 pb-3 pt-[max(16px,env(safe-area-inset-top))] backdrop-blur"><div className="flex items-center justify-between"><button onClick={close} className="round-button"><Icon name="close" /></button><div className="text-center"><p className="text-[10px] font-extrabold tracking-[.14em] text-[#78837E]">ACTIVE WORKOUT</p><p className="mt-0.5 text-sm font-semibold">{workout.name}</p></div><span className="rounded-full bg-[#ECF3EE] px-3 py-2 text-xs font-bold text-[#17483F]">{completedSets}/{totalSets}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#E6E0D6]"><div className="h-full rounded-full bg-[#17483F] transition-all" style={{ width: `${totalSets ? (completedSets / totalSets) * 100 : 0}%` }} /></div></div>
-      <main className="px-5 py-5"><div className="mb-4 rounded-[22px] bg-[#ECF3EE] p-4 text-sm leading-6 text-[#526860]">Keep 2–3 good reps in reserve. You do not need to earn exhaustion for the workout to count.</div><div className="space-y-3">{workout.exercises.map((item, exerciseIndex) => <article key={item.exercise.id} className="active-exercise"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">{exerciseIndex + 1} · {item.exercise.focus.join(" + ")}</p><h2 className="mt-1 text-lg font-semibold">{item.exercise.name}</h2><p className="mt-1 text-xs leading-5 text-[#77817D]">{item.exercise.cue}</p></div><button onClick={() => setSwapFor(item.exercise.id)} className="soft-button"><Icon name="swap" size={14} /> Swap</button></div><div className="mt-4 grid grid-cols-[44px_1fr_1fr_46px] gap-2 text-center text-[10px] font-bold uppercase tracking-[.08em] text-[#8A938F]"><span>Set</span><span>Previous</span><span>Today</span><span>Done</span></div>{Array.from({ length: item.sets }, (_, index) => <div key={index} className="set-row"><span className="set-number">{index + 1}</span><span className="text-center text-xs text-[#6E7874]">{item.previous}</span><span className="text-center text-xs font-semibold text-[#34413D]">8–12 reps</span><button onClick={() => toggleSet(item.exercise.id, index)} className={cx("set-check", setChecks[item.exercise.id]?.[index] && "set-check-done")} aria-label="Complete set">{setChecks[item.exercise.id]?.[index] && <Icon name="check" size={16} />}</button></div>)}</article>)}</div><button onClick={finish} className="start-primary mt-5 w-full">Finish workout <Icon name="check" size={17} /></button><p className="mt-3 text-center text-xs text-[#858D89]">Partial completion still counts. The log records what you actually did.</p></main></div>
-      {selected && <BottomSheet close={() => setSwapFor(null)} title={`Swap ${selected.exercise.name}`}><p className="text-sm leading-6 text-[#68736F]">Same movement role, filtered to your current equipment and dislikes.</p><div className="mt-4 space-y-2">{alternatives.map((alt) => <button key={alt.id} onClick={() => { onSwap(selected.exercise.id, alt.id); setSwapFor(null); }} className="swap-option"><span><strong>{alt.name}</strong><small>{alt.focus.join(" + ")} · {alt.stable ? "stable setup" : "free movement"}</small></span><Icon name="chevron" size={17} /></button>)}</div></BottomSheet>}
-    </div>;
 }
 
 function ProgressView({ state, review, targets, patch, setTab }: { state: AppState; review: ReturnType<typeof reviewProgress>; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; setTab: (tab: AppTab) => void }) {
