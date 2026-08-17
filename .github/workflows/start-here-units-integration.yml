@@ -30,39 +30,34 @@ jobs:
           if 'displayWeight' not in text:
               text = text.replace(engine_anchor, engine_anchor + 'import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";\n', 1)
 
-          text = text.replace(
-              'const saved = localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");',
-              'const saved = localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");'
-          )
-          text = text.replace(
-              'localStorage.setItem("start-here-state-v4", JSON.stringify(state));',
-              'localStorage.setItem("start-here-state-v5", JSON.stringify(state));'
-          )
-          text = text.replace(
-              'localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3");',
-              'localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3");'
-          )
+          text = text.replace('const saved = localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");', 'const saved = localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");')
+          text = text.replace('localStorage.setItem("start-here-state-v4", JSON.stringify(state));', 'localStorage.setItem("start-here-state-v5", JSON.stringify(state));')
+          text = text.replace('localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3");', 'localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3");')
 
-          old_step = """        {step === 2 && (
-          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue onClick={() => setStep(3)} />}>
-            <div className="mt-6 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Age"><input inputMode="numeric" type="number" min={13} max={100} value={state.age} onChange={(e) => patch({ age: Number(e.target.value) })} /></Field>
-                <Field label="Equation used"><select value={state.sexEquation} onChange={(e) => patch({ sexEquation: e.target.value as "male" | "female" })}><option value="male">Male</option><option value="female">Female</option></select></Field>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Height"><div className="unit-input"><input inputMode="decimal" type="number" value={state.heightCm} onChange={(e) => patch({ heightCm: Number(e.target.value) })} /><span>cm</span></div></Field>
-                <Field label="Current weight"><div className="unit-input"><input inputMode="decimal" type="number" value={state.weightKg} onChange={(e) => patch({ weightKg: Number(e.target.value) })} /><span>kg</span></div></Field>
-              </div>
-              <InfoCard>We use these only to make the starting estimate more sensible. No body-fat estimate, target photo, or advanced macro setup required.</InfoCard>
-            </div>
-          </OnboardingSection>
-        )}"""
-          new_step = """        {step === 2 && (
-          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue disabled={!validBasicProfile(state)} onClick={() => setStep(3)} />}>
-            <BasicProfileFields state={state} patch={patch} />
-          </OnboardingSection>
-        )}"""
+          old_step = "\n".join([
+              '        {step === 2 && (',
+              '          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue onClick={() => setStep(3)} />}>',
+              '            <div className="mt-6 space-y-3">',
+              '              <div className="grid grid-cols-2 gap-3">',
+              '                <Field label="Age"><input inputMode="numeric" type="number" min={13} max={100} value={state.age} onChange={(e) => patch({ age: Number(e.target.value) })} /></Field>',
+              '                <Field label="Equation used"><select value={state.sexEquation} onChange={(e) => patch({ sexEquation: e.target.value as "male" | "female" })}><option value="male">Male</option><option value="female">Female</option></select></Field>',
+              '              </div>',
+              '              <div className="grid grid-cols-2 gap-3">',
+              '                <Field label="Height"><div className="unit-input"><input inputMode="decimal" type="number" value={state.heightCm} onChange={(e) => patch({ heightCm: Number(e.target.value) })} /><span>cm</span></div></Field>',
+              '                <Field label="Current weight"><div className="unit-input"><input inputMode="decimal" type="number" value={state.weightKg} onChange={(e) => patch({ weightKg: Number(e.target.value) })} /><span>kg</span></div></Field>',
+              '              </div>',
+              '              <InfoCard>We use these only to make the starting estimate more sensible. No body-fat estimate, target photo, or advanced macro setup required.</InfoCard>',
+              '            </div>',
+              '          </OnboardingSection>',
+              '        )}'
+          ])
+          new_step = "\n".join([
+              '        {step === 2 && (',
+              '          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue disabled={!validBasicProfile(state)} onClick={() => setStep(3)} />}>',
+              '            <BasicProfileFields state={state} patch={patch} />',
+              '          </OnboardingSection>',
+              '        )}'
+          ])
           if old_step not in text:
               raise SystemExit("basic profile block not found")
           text = text.replace(old_step, new_step, 1)
@@ -79,11 +74,7 @@ jobs:
               raise SystemExit("progress trend display not found")
           text = text.replace(old_trend, new_trend, 1)
 
-          text = text.replace(
-              '<WeightLogSheet currentKg={state.weightKg} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />',
-              '<WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />',
-              1,
-          )
+          text = text.replace('<WeightLogSheet currentKg={state.weightKg} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />', '<WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />', 1)
 
           profile_anchor = '<div className="mt-5 space-y-3"><SettingRow title="Hide calories"'
           profile_replacement = '<div className="mt-5 space-y-3"><SettingRow title="Units" copy="Change how body weight, height, and gym loads are displayed." control={<select className="mini-select" value={state.unitSystem} onChange={(e) => patch({ unitSystem: e.target.value as AppState["unitSystem"] })}><option value="imperial">Imperial</option><option value="metric">Metric</option></select>} /><SettingRow title="Hide calories"'
@@ -97,15 +88,9 @@ jobs:
           model_anchor = 'import type { AppState, ExerciseLog, WorkoutSetLog } from "@/lib/startHereModels";\n'
           if 'inputWeightToKg' not in text:
               text = text.replace(model_anchor, model_anchor + 'import { inputWeightToKg } from "@/lib/startHereUnits";\n', 1)
-          text = text.replace(
-              'const weight = row?.weight.trim() ? Number(row.weight) : null;',
-              'const weight = row?.weight.trim() ? inputWeightToKg(Number(row.weight), state.unitSystem) : null;'
-          )
+          text = text.replace('const weight = row?.weight.trim() ? Number(row.weight) : null;', 'const weight = row?.weight.trim() ? inputWeightToKg(Number(row.weight), state.unitSystem) : null;')
           text = text.replace('<span>Wt</span><span>Reps</span>', '<span>Wt ({state.unitSystem === "imperial" ? "lb" : "kg"})</span><span>Reps</span>')
-          text = text.replace(
-              'aria-label={`${item.exercise.name} set ${index + 1} weight`}',
-              'aria-label={`${item.exercise.name} set ${index + 1} weight in ${state.unitSystem === "imperial" ? "pounds" : "kilograms"}`}'
-          )
+          text = text.replace('aria-label={`${item.exercise.name} set ${index + 1} weight`}', 'aria-label={`${item.exercise.name} set ${index + 1} weight in ${state.unitSystem === "imperial" ? "pounds" : "kilograms"}`}')
           workout.write_text(text)
 
           plan = Path("start-here/src/lib/startHerePlan.ts")
@@ -113,10 +98,7 @@ jobs:
           model_anchor = 'import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";\n'
           if 'displayLoad' not in text:
               text = text.replace(model_anchor, model_anchor + 'import { displayLoad } from "@/lib/startHereUnits";\n', 1)
-          text = text.replace(
-              'const load = set.weight === null ? "BW" : String(set.weight);',
-              'const load = displayLoad(set.weight, state.unitSystem);'
-          )
+          text = text.replace('const load = set.weight === null ? "BW" : String(set.weight);', 'const load = displayLoad(set.weight, state.unitSystem);')
           plan.write_text(text)
 
       - name: Commit unit integration
