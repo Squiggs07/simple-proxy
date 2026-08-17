@@ -31,7 +31,7 @@ jobs:
         run: npm ci
 
       - name: Lint Start Here product code
-        run: npx eslint src/components/StartHereAppV2.tsx src/lib/startHereEngine.ts src/lib/startHereModels.ts src/lib/startHereCatalog.ts src/lib/startHereMealLibrary.ts src/lib/startHerePlan.ts src/lib/startHereCoach.ts
+        run: npx eslint src/components/StartHereAppV2.tsx src/components/ActiveWorkoutExperience.tsx src/lib/startHereEngine.ts src/lib/startHereModels.ts src/lib/startHereCatalog.ts src/lib/startHereMealLibrary.ts src/lib/startHerePlan.ts src/lib/startHereCoach.ts
 
       - name: Test planning logic
         run: npm test
