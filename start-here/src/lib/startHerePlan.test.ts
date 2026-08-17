@@ -15,6 +15,24 @@ describe("Start Here planning", () => {
     expect(meals[0]?.meal.name.toLowerCase()).toContain("pasta");
   });
 
+  it("removes an exact meal after Not for me feedback without hard-excluding its ingredients", () => {
+    const base = rankMeals(INITIAL_STATE);
+    const rejectedId = base[0].meal.id;
+    const state = { ...INITIAL_STATE, rejectedMealIds: [rejectedId] };
+    expect(rankMeals(state).some((item) => item.meal.id === rejectedId)).toBe(false);
+  });
+
+  it("persists a manual meal portion override into deterministic meal totals", () => {
+    const first = buildDayMeals(INITIAL_STATE, 2200, 160)[0];
+    const largerState = {
+      ...INITIAL_STATE,
+      mealPortionOverrides: { [first.sourceMealId]: "larger" as const },
+    };
+    const larger = buildDayMeals(largerState, 2200, 160).find((item) => item.sourceMealId === first.sourceMealId);
+    expect(larger?.portion).toBe("larger");
+    expect(larger?.calories ?? 0).toBeGreaterThan(first.portion === "larger" ? 0 : first.calories);
+  });
+
   it("can build a full vegan starter day instead of dead-ending", () => {
     const state = {
       ...INITIAL_STATE,
@@ -42,5 +60,33 @@ describe("Start Here planning", () => {
     const workout = buildWorkout(state);
     expect(workout.exercises.length).toBeGreaterThan(0);
     expect(workout.exercises.every((item) => item.exercise.stable && item.exercise.beginnerFriendly)).toBe(true);
+  });
+
+  it("surfaces the latest completed set as previous performance", () => {
+    const baseWorkout = buildWorkout(INITIAL_STATE);
+    const exerciseId = baseWorkout.exercises[0].exercise.id;
+    const state = {
+      ...INITIAL_STATE,
+      workoutLogs: [
+        {
+          id: "session-1",
+          date: "2026-08-16",
+          workoutName: "Full Body A",
+          minutes: 45,
+          completed: true,
+          exercises: [
+            {
+              exerciseId,
+              sets: [
+                { weight: 70, reps: 10, complete: true },
+                { weight: 72.5, reps: 8, complete: true },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const workout = buildWorkout(state);
+    expect(workout.exercises.find((item) => item.exercise.id === exerciseId)?.previous).toBe("72.5 × 8");
   });
 });
