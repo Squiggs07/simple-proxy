@@ -1,0 +1,42 @@
+name: Validate adaptive exercise depth
+
+on:
+  push:
+    branches: [adaptive-v4-exercise-depth]
+    paths:
+      - .github/workflows/adaptive-v4-run.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: adaptive-v4-exercise-depth
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Wire expanded exercise library into adaptive planning
+        run: python .github/scripts/v4_expand_exercise_usage.py
+      - name: Install
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Lint changed product code
+        run: npx eslint src/lib/startHerePlan.ts src/lib/startHereBehavior.ts src/lib/startHereExerciseLibrary.ts
+      - name: Test
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Commit validated product changes
+        run: |
+          git config user.name "Squiggs07"
+          git config user.email "160694990+Squiggs07@users.noreply.github.com"
+          git add src/lib/startHerePlan.ts src/lib/startHereBehavior.ts
+          git commit -m "Use expanded exercise library in adaptive plans"
+          git push origin HEAD:adaptive-v4-exercise-depth
