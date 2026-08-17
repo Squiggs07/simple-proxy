@@ -104,10 +104,6 @@ export function workoutIdentity(sequence: number, trainingDays: number) {
   };
 }
 
-function completedDates(state: AppState) {
-  return new Set(state.workoutLogs.filter((log) => log.completed).map((log) => log.date));
-}
-
 function latestWorkoutNameOn(state: AppState, date: string) {
   return [...state.workoutLogs].reverse().find((log) => log.completed && log.date === date)?.workoutName ?? null;
 }
