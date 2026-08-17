@@ -494,7 +494,7 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
 
         {building && (
           <section className="grid flex-1 place-items-center text-center">
-            <div className="w-full max-w-xs"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#ECF3EE] text-[#17483F]"><Icon name="spark" size={24} /></div><h1 className="mt-6 text-3xl font-semibold tracking-[-.035em]">Building your first week</h1><div className="mt-7 space-y-3 text-left text-sm text-[#66716D]"><BuildRow text="Understanding your preferences" /><BuildRow text="Estimating a safe starting target" /><BuildRow text="Choosing meals you would actually eat" /><BuildRow text="Building a manageable workout rhythm" /></div><div className="mx-auto mt-8 h-1.5 w-48 overflow-hidden rounded-full bg-[#E6E0D6]"><div className="loading-bar h-full rounded-full bg-[#17483F]" /></div></div></div>
+            <div className="w-full max-w-xs"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#ECF3EE] text-[#17483F]"><Icon name="spark" size={24} /></div><h1 className="mt-6 text-3xl font-semibold tracking-[-.035em]">Building your first week</h1><div className="mt-7 space-y-3 text-left text-sm text-[#66716D]"><BuildRow text="Understanding your preferences" /><BuildRow text="Estimating a safe starting target" /><BuildRow text="Choosing meals you would actually eat" /><BuildRow text="Building a manageable workout rhythm" /></div><div className="mx-auto mt-8 h-1.5 w-48 overflow-hidden rounded-full bg-[#E6E0D6]"><div className="loading-bar h-full rounded-full bg-[#17483F]" /></div></div>
           </section>
         )}
       </div>
