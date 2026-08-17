@@ -21,6 +21,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - name: Fix current Coach import matcher
+        run: python .github/scripts/fix_adaptive_v3_script.py
       - name: Integrate weekly planning
         run: python .github/scripts/adaptive_v3_integrate.py
       - name: Install
