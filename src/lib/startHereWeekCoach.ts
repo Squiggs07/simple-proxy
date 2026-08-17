@@ -135,7 +135,8 @@ function normalWeekdaysChange(text: string, state: AppState, today: string, ment
 
 export function interpretWeekScheduleRequest(raw: string, state: AppState): WeekCoachActionResult | null {
   const text = raw.trim().toLowerCase().replace(/[’]/g, "'");
-  if (!text || !trainingScheduleContext(text)) return null;
+  const restoreIntent = /restore (?:my )?(?:normal )?schedule(?: this week)?|clear (?:my )?(?:week|weekly) (?:changes|adjustments)|undo (?:my )?(?:week|weekly) schedule/.test(text);
+  if (!text || (!trainingScheduleContext(text) && !restoreIntent)) return null;
   const today = state.currentDay || new Date().toISOString().slice(0, 10);
   const weekStart = mondayOf(today);
   const week = buildTrainingWeek(state, today);
@@ -143,7 +144,7 @@ export function interpretWeekScheduleRequest(raw: string, state: AppState): Week
 
   const ongoing = normalWeekdaysChange(text, state, today, mentions);
   if (ongoing) return ongoing;
-  if (scopeIsPermanent(text)) return null;
+  if (scopeIsPermanent(text) && !restoreIntent) return null;
 
   if (/restore (?:my )?(?:normal )?schedule(?: this week)?|clear (?:my )?(?:week|weekly) (?:changes|adjustments)|undo (?:my )?(?:week|weekly) schedule/.test(text)) {
     if (!week.activeExceptions.length) {

@@ -119,6 +119,24 @@ describe("adaptive planning", () => {
     expect(schedule?.confidence).toBe("strong");
   });
 
+  it("does not penalize workout adherence for a session Coach excused this week", () => {
+    const current = state({
+      trainingDays: 3,
+      preferredDays: ["Mon", "Wed", "Fri"],
+      onboardingCompletedAt: "2026-08-03T12:00:00.000Z",
+      weekTrainingExceptions: [{ id: "skip", weekStart: "2026-08-10", kind: "skip", fromDate: "2026-08-14", toDate: null, createdAt: "2026-08-10T10:00:00.000Z", note: null }],
+      workoutLogs: [
+        { id: "a", date: "2026-08-03", workoutName: "A", minutes: 45, exercises: [], completed: true },
+        { id: "b", date: "2026-08-05", workoutName: "B", minutes: 45, exercises: [], completed: true },
+        { id: "c", date: "2026-08-07", workoutName: "A", minutes: 45, exercises: [], completed: true },
+        { id: "d", date: "2026-08-10", workoutName: "B", minutes: 45, exercises: [], completed: true },
+        { id: "e", date: "2026-08-12", workoutName: "A", minutes: 45, exercises: [], completed: true },
+        { id: "f", date: "2026-08-17", workoutName: "B", minutes: 45, exercises: [], completed: true },
+      ],
+    });
+    expect(workoutAdherence(current, "2026-08-17")).toBe(1);
+  });
+
   it("recognizes repeated top-of-range performance as a progression signal", () => {
     const current = state({
       workoutLogs: [

@@ -225,7 +225,7 @@ export function buildTrainingWeek(state: AppState, today: string): TrainingWeekP
   const baseScheduledDates = Array.from({ length: 7 }, (_, index) => addCalendarDays(start, index))
     .filter((date) => preferred.includes(weekdayForDate(date)));
   const baseSequenceByDate = new Map(baseScheduledDates.map((date, index) => [date, baseSequence + index]));
-  const exceptions = activeWeekExceptions(state, start);
+  const exceptions = activeWeekExceptions(state, start).filter((item) => baseSequenceByDate.has(item.fromDate));
   const schedule = effectiveSchedule(baseSequenceByDate, exceptions, start, end);
   const days = Array.from({ length: 7 }, (_, index) => planDay(state, addCalendarDays(start, index), baseSequenceByDate, schedule, exceptions));
   const todayPlan = days.find((day) => day.date === today) ?? planDay(state, today, baseSequenceByDate, schedule, exceptions);

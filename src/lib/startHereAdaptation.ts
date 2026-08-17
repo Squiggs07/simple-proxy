@@ -1,6 +1,6 @@
 import { calculateTargets, smoothedWeightTrend, validateCalorieTarget } from "@/lib/startHereEngine";
 import type { AppState, ReadinessCheckIn, WorkoutSessionLog } from "@/lib/startHereModels";
-import { daysLabel, observedTrainingPattern } from "@/lib/startHereWeek";
+import { buildTrainingWeek, daysLabel, mondayOf, observedTrainingPattern } from "@/lib/startHereWeek";
 
 export interface AdaptationRecommendation {
   id: string;
@@ -61,9 +61,22 @@ export function workoutAdherence(state: AppState, today: string, windowDays = 14
   const start = onboardingDate > daysAgo(today, windowDays - 1) ? onboardingDate : daysAgo(today, windowDays - 1);
   const elapsed = diffDays(today, start) + 1;
   if (elapsed < 7) return null;
-  const expected = Math.max(1, (state.trainingDays * elapsed) / 7);
-  const completed = state.workoutLogs.filter((log) => log.completed && log.date >= start && log.date <= today).length;
-  return Math.min(1.5, completed / expected);
+
+  const expectedDates = new Set<string>();
+  for (let weekStart = mondayOf(start); weekStart <= today; weekStart = daysAgo(weekStart, -7)) {
+    const week = buildTrainingWeek(state, weekStart);
+    for (const day of week.days) {
+      if (day.scheduled && day.date >= start && day.date <= today) expectedDates.add(day.date);
+    }
+  }
+  const expected = expectedDates.size;
+  if (!expected) return null;
+  const completedDates = new Set(
+    state.workoutLogs
+      .filter((log) => log.completed && log.date >= start && log.date <= today)
+      .map((log) => log.date),
+  );
+  return Math.min(1.5, completedDates.size / expected);
 }
 
 export function mealAdherence(state: AppState, today: string, windowDays = 10): number | null {

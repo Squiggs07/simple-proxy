@@ -47,6 +47,7 @@ import {
   daysLabel,
   defaultTrainingDays,
   normalizePreferredDays,
+  mondayOf,
   type TrainingWeekPlan,
   type Weekday,
 } from "@/lib/startHereWeek";
@@ -142,7 +143,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v9") ?? localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         const merged = saved ? mergeStoredState(JSON.parse(saved)) : INITIAL_STATE;
         const date = todayKey();
         setState(merged.currentDay === date ? merged : {
@@ -162,7 +163,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v8", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v9", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -456,7 +457,7 @@ export function StartHereAppV2() {
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
       {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
@@ -628,14 +629,16 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
 function TrainingScheduleControls({ state, patch }: { state: AppState; patch: (update: Partial<AppState>) => void }) {
   const selected = normalizePreferredDays(state.preferredDays, state.trainingDays);
   function setFrequency(days: number) {
-    patch({ trainingDays: days, preferredDays: defaultTrainingDays(days) });
+    const weekStart = mondayOf(state.currentDay || todayKey());
+    patch({ trainingDays: days, preferredDays: defaultTrainingDays(days), weekTrainingExceptions: state.weekTrainingExceptions.filter((item) => item.weekStart !== weekStart) });
   }
   function chooseDay(day: Weekday) {
     if (selected.includes(day)) return;
     const targetIndex = WEEKDAYS.indexOf(day);
     const nearest = [...selected].sort((a, b) => Math.abs(WEEKDAYS.indexOf(a) - targetIndex) - Math.abs(WEEKDAYS.indexOf(b) - targetIndex))[0];
     const next = [...selected.filter((item) => item !== nearest), day].sort((a, b) => WEEKDAYS.indexOf(a) - WEEKDAYS.indexOf(b));
-    patch({ preferredDays: next });
+    const weekStart = mondayOf(state.currentDay || todayKey());
+    patch({ preferredDays: next, weekTrainingExceptions: state.weekTrainingExceptions.filter((item) => item.weekStart !== weekStart) });
   }
   return <div className="space-y-4">
     <ChoiceGroup label="Days per week" hint="2–3 is a strong beginner starting point."><div className="chip-row">{[1,2,3,4,5,6].map((n) => <button key={n} onClick={() => setFrequency(n)} className={cx("number-chip", state.trainingDays === n && "chip-active")}>{n}</button>)}</div></ChoiceGroup>
@@ -690,9 +693,11 @@ function TrainingWeekStrip({ week }: { week: TrainingWeekPlan }) {
     <div className="mt-4 grid grid-cols-7 gap-1.5">{week.days.map((day) => {
       const isToday = day.date === week.today.date;
       const done = day.trained;
-      return <div key={day.date} className={cx("rounded-xl px-1 py-2 text-center", isToday ? "bg-[#ECF3EE]" : "bg-[#FCFAF6]")}><p className="text-[9px] font-bold uppercase text-[#8A938F]">{day.day}</p><div className={cx("mx-auto mt-1.5 grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold", done ? "bg-[#17483F] text-white" : day.scheduled ? "border border-[#9AB2A8] text-[#17483F]" : "text-[#B3B9B6]")}>{done ? "✓" : day.scheduled ? "•" : "–"}</div></div>;
+      const marker = done ? "✓" : day.adjustment === "moved-from" ? "→" : day.adjustment === "skipped" ? "×" : day.scheduled ? "•" : "–";
+      return <div key={day.date} className={cx("rounded-xl px-1 py-2 text-center", isToday ? "bg-[#ECF3EE]" : day.excused ? "bg-[#EAE6F5]/55" : "bg-[#FCFAF6]")}><p className="text-[9px] font-bold uppercase text-[#8A938F]">{day.day}</p><div className={cx("mx-auto mt-1.5 grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold", done ? "bg-[#17483F] text-white" : day.adjustment === "moved-to" ? "border border-[#6E9084] bg-[#ECF3EE] text-[#17483F]" : day.excused ? "text-[#777187]" : day.scheduled ? "border border-[#9AB2A8] text-[#17483F]" : "text-[#B3B9B6]")}>{marker}</div></div>;
     })}</div>
     <p className="mt-3 text-xs leading-5 text-[#7B8581]">Next: {week.nextTrainingDay.day} · {week.nextTrainingDay.workoutName}{extra ? ` · ${extra} extra session${extra === 1 ? "" : "s"} also counted` : ""}</p>
+    {week.adjustmentSummary.length > 0 && <div className="mt-3 rounded-xl bg-[#EAE6F5]/60 px-3 py-2.5">{week.adjustmentSummary.map((item) => <p key={item} className="text-[11px] leading-5 text-[#666276]">{item}</p>)}</div>}
   </section>;
 }
 
@@ -706,7 +711,7 @@ function TodayView({ state, targets, meals, workout, week, adaptation, setReadin
   const readiness = adaptation.latestReadiness?.readiness ?? null;
   const ongoingAdaptation = adaptation.recommendations.find((item) => item.scope === "ongoing");
   return <div>
-    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy={week.today.scheduled ? "Today fits your normal training rhythm." : `No workout is scheduled today. Your next planned session is ${week.nextTrainingDay.day}.`} action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
+    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy={week.today.adjustment === "moved-to" ? "This workout was moved here for this week only." : week.today.excused ? `Today’s normal workout is excused for this week. Your next planned session is ${week.nextTrainingDay.day}.` : week.today.scheduled ? "Today fits your normal training rhythm." : `No workout is scheduled today. Your next planned session is ${week.nextTrainingDay.day}.`} action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
 
     <section className="dashboard-card mb-3">
       <div className="flex items-start justify-between gap-3"><div><p className="card-kicker">10-SECOND CHECK-IN</p><p className="mt-1 text-sm font-semibold">How ready do you feel today?</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">This only changes today unless a longer pattern shows up.</p></div><Icon name="spark" size={18} /></div>
