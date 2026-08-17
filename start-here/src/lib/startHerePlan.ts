@@ -1,5 +1,6 @@
 import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
-import { EXERCISES, MEALS, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, Equipment } from "@/lib/startHereModels";
 
 export interface RankedMeal {
@@ -63,7 +64,7 @@ export function isMealAllowed(meal: Meal, state: AppState) {
 }
 
 export function rankMeals(state: AppState): RankedMeal[] {
-  return MEALS.filter((meal) => isMealAllowed(meal, state))
+  return ALL_MEALS.filter((meal) => isMealAllowed(meal, state))
     .map((meal) => {
       let score = 0;
       const reasons: string[] = [];

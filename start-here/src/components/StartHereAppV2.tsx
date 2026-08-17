@@ -2,7 +2,8 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
-import { MEALS, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
+import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { interpretCoachRequest } from "@/lib/startHereCoach";
 import {
   alternativeExercises,
@@ -139,7 +140,7 @@ export function StartHereAppV2() {
     exercises: baseWorkout.exercises.map((item) => {
       const overrideId = exerciseSwaps[item.exercise.id];
       if (!overrideId) return item;
-      const replacement = MEALS.length >= 0 ? undefined : undefined;
+      const replacement = ALL_MEALS.length >= 0 ? undefined : undefined;
       void replacement;
       return item;
     }),
@@ -161,8 +162,8 @@ export function StartHereAppV2() {
   void workout;
 
   const progressReview = useMemo(() => reviewProgress(state), [state]);
-  const selectedMeal = selectedMealId ? MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
-  const swapSource = swapMealId ? MEALS.find((meal) => meal.id === swapMealId) ?? null : null;
+  const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
+  const swapSource = swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? null : null;
 
   function patch(update: Partial<AppState>) {
     setState((current) => ({ ...current, ...update }));
@@ -193,7 +194,7 @@ export function StartHereAppV2() {
 
   function effectiveMeal(item: PlannedMeal) {
     const replacementId = state.swappedMealIds[item.meal.id];
-    const replacement = replacementId ? MEALS.find((meal) => meal.id === replacementId) : undefined;
+    const replacement = replacementId ? ALL_MEALS.find((meal) => meal.id === replacementId) : undefined;
     if (!replacement) return item;
     const macro = mealMacros(replacement);
     const factor = item.portion === "smaller" ? 0.88 : item.portion === "larger" ? 1.12 : 1;
