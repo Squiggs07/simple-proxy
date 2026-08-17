@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  profile      Profile?
+  macroTargets MacroTarget[]
+  mealPlans    MealPlan[]
+  weighIns     WeighIn[]
+}
+
+model Profile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal          String
+  sexAtBirth    String
+  age           Int
+  heightCm      Float
+  weightKg      Float
+  activityLevel String
+  // Legacy comma-separated hard exclusions consumed by the current meal engine.
+  // New structured preference fields below are the source of truth for the rebuild.
+  exclusions    String   @default("")
+  mealPriority  String   @default("balanced")
+  units         String   @default("imperial")
+
+  // Training preferences. These are intentionally plain strings so new choices can
+  // be introduced without a schema migration for every UX iteration.
+  trainingDays    Int    @default(3)
+  sessionMinutes  Int    @default(45)
+  equipment       String @default("gym")
+  experienceLevel String @default("beginner")
+  confidenceLevel String @default("unsure")
+
+  // JSON string arrays. Positive preferences are kept separate from dislikes and
+  // hard exclusions because they have different ranking/safety semantics.
+  likedFoods        String @default("[]")
+  preferredCuisines String @default("[]")
+  mealFormats       String @default("[]")
+  dislikes          String @default("[]")
+  neverFoods        String @default("[]")
+  allergies         String @default("[]")
+  dietType          String @default("none")
+  breakfastStyle    String @default("either")
+  cookingMinutes    Int    @default(20)
+  budgetLevel       String @default("moderate")
+  varietyPreference String @default("some")
+  mealsPerDay       Int    @default(4)
+
+  // JSON string array of general health/safety flags disclosed in onboarding.
+  // These guide conservative routing; they are never a diagnosis.
+  healthFlags String @default("[]")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Food {
+  id             String   @id @default(cuid())
+  // USDA FoodData Central ID when the record came from the FDC API.
+  fdcId          Int?     @unique
+  name           String   @unique
+  kcalPer100g    Float
+  proteinPer100g Float
+  carbsPer100g   Float
+  fatPer100g     Float
+  // Optional natural unit, e.g. gramsPerUnit=50, unitName="large egg".
+  gramsPerUnit   Float?
+  unitName       String?
+  source         String // "seed" | "usda"
+  createdAt      DateTime @default(now())
+
+  @@index([name])
+}
+
+model MealPlan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Local calendar date the plan is for, as YYYY-MM-DD.
+  date      String
+  meals     Meal[]
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+}
+
+model Meal {
+  id            String   @id @default(cuid())
+  planId        String
+  plan          MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  slot          String // breakfast | lunch | dinner | snack
+  title         String
+  description   String   @default("")
+  whyThisFits   String   @default("")
+  // JSON string[] of simple preparation steps.
+  steps         String   @default("[]")
+  // JSON array of {foodId, name, grams, note?} — resolved, verified ingredients.
+  ingredients   String
+  kcal          Int
+  proteinG      Float
+  carbsG        Float
+  fatG          Float
+  // The kcal budget this meal was generated against, pre portion adjustments.
+  budgetKcal    Int
+  portionFactor Float    @default(1)
+  source        String // "llm" | "template"
+  priority      String
+  // Set when the user marks the meal as eaten (the Phase 4 habit loop).
+  eatenAt       DateTime?
+  createdAt     DateTime  @default(now())
+}
+
+model WeighIn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Local calendar date of the weigh-in, YYYY-MM-DD. One per day.
+  date      String
+  weightKg  Float
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+}
+
+model MacroTarget {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calories            Int
+  proteinG            Int
+  carbsG              Int
+  fatG                Int
+  maintenanceCalories Int
+  planType            String
+  // JSON array of safety flags raised during computation.
+  flags               String   @default("[]")
+  // JSON snapshot of the inputs used, so targets can be recomputed later.
+  inputs              String
+  computedAt          DateTime @default(now())
+}

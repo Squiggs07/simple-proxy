@@ -1,0 +1,36 @@
+name: Start Here CI
+
+on:
+  pull_request:
+    paths:
+      - "start-here/**"
+      - ".github/workflows/start-here-ci.yml"
+  push:
+    branches:
+      - start-here-rebuild
+    paths:
+      - "start-here/**"
+      - ".github/workflows/start-here-ci.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: start-here
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/start_here_ci
+      AUTH_SECRET: start-here-ci-secret-not-for-production
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: start-here/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build

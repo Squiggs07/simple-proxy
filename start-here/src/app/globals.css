@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f4ee;
+  --surface: #ffffff;
+  --surface-warm: #fcfaf6;
+  --ink: #1d2926;
+  --muted: #68736f;
+  --evergreen: #17483f;
+  --evergreen-dark: #123b34;
+  --sage: #ecf3ee;
+  --sage-strong: #6e9084;
+  --butter: #e8e6a8;
+  --peach: #f5ded2;
+  --lavender: #eae6f5;
+  --blue-soft: #e7eff5;
+  --border: #e6e0d6;
+  --success: #4e806b;
+  --warning: #b47b3f;
+  --error: #b75b59;
+  --shadow-soft: 0 10px 30px rgba(29, 41, 38, 0.07);
+  --shadow-card: 0 4px 18px rgba(29, 41, 38, 0.055);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  color: var(--ink);
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100dvh;
+  margin: 0;
+  background: var(--background);
+  color: var(--ink);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(110, 144, 132, 0.4);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--butter);
+  color: var(--evergreen-dark);
+}
+
+.start-page {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 78% 8%, rgba(232, 230, 168, 0.28), transparent 24rem),
+    radial-gradient(circle at 5% 85%, rgba(236, 243, 238, 0.75), transparent 28rem),
+    var(--background);
+}
+
+.start-shell {
+  width: min(100%, 31rem);
+  margin-inline: auto;
+  padding:
+    max(1.25rem, env(safe-area-inset-top))
+    1.25rem
+    max(1.5rem, env(safe-area-inset-bottom));
+}
+
+.start-card {
+  border: 1px solid var(--border);
+  border-radius: 1.35rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-card);
+}
+
+.start-button-primary {
+  display: inline-flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  background: var(--evergreen);
+  color: white;
+  font-weight: 700;
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.start-button-primary:hover {
+  background: var(--evergreen-dark);
+  box-shadow: 0 8px 20px rgba(23, 72, 63, 0.18);
+}
+
+.start-button-primary:active {
+  transform: translateY(1px);
+}
+
+.start-button-secondary {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--evergreen-dark);
+  font-weight: 650;
+}
+
+.start-eyebrow {
+  color: var(--sage-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.start-muted {
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
