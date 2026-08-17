@@ -1,0 +1,107 @@
+name: Apply adaptive core integration
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/apply-adaptive-core.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - name: Integrate adaptive engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"Expected snippet not found in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          app = "src/components/StartHereAppV2.tsx"
+          replace(app,
+              'import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";\n',
+              'import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";\nimport { buildAdaptationReview, type AdaptationRecommendation } from "@/lib/startHereAdaptation";\n')
+          replace(app,
+              '  type MealPortion,\n  type Variety,\n} from "@/lib/startHereModels";',
+              '  type MealPortion,\n  type Readiness,\n  type Variety,\n} from "@/lib/startHereModels";')
+          replace(app,
+              '''  useEffect(() => {\n    const timer = window.setTimeout(() => {\n      try {\n        const saved = localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");\n        if (saved) setState(mergeStoredState(JSON.parse(saved)));\n      } catch {\n        setState(INITIAL_STATE);\n      } finally {\n        setReady(true);\n      }\n    }, 0);\n    return () => window.clearTimeout(timer);\n  }, []);\n\n  useEffect(() => {\n    if (ready) localStorage.setItem("start-here-state-v6", JSON.stringify(state));\n  }, [state, ready]);''',
+              '''  useEffect(() => {\n    const timer = window.setTimeout(() => {\n      try {\n        const saved = localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");\n        const merged = saved ? mergeStoredState(JSON.parse(saved)) : INITIAL_STATE;\n        const date = todayKey();\n        setState(merged.currentDay === date ? merged : {\n          ...merged,\n          currentDay: date,\n          eatenMealIds: [],\n          swappedMealIds: {},\n          todayOverride: { minutes: null, equipment: null, note: null },\n        });\n      } catch {\n        setState({ ...INITIAL_STATE, currentDay: todayKey() });\n      } finally {\n        setReady(true);\n      }\n    }, 0);\n    return () => window.clearTimeout(timer);\n  }, []);\n\n  useEffect(() => {\n    if (ready) localStorage.setItem("start-here-state-v7", JSON.stringify(state));\n  }, [state, ready]);''')
+          replace(app,
+              '  const progressReview = useMemo(() => reviewProgress(state), [state]);\n',
+              '  const progressReview = useMemo(() => reviewProgress(state), [state]);\n  const adaptationReview = useMemo(() => buildAdaptationReview(state, state.currentDay || todayKey()), [state]);\n')
+          replace(app,
+              '''  function toggleMealEaten(id: string) {\n    patch({ eatenMealIds: state.eatenMealIds.includes(id) ? state.eatenMealIds.filter((item) => item !== id) : [...state.eatenMealIds, id] });\n  }\n\n  function updateMealPortion''',
+              '''  function toggleMealEaten(id: string) {\n    const date = todayKey();\n    const alreadyEaten = state.eatenMealIds.includes(id);\n    patch({\n      eatenMealIds: alreadyEaten ? state.eatenMealIds.filter((item) => item !== id) : [...state.eatenMealIds, id],\n      mealLogs: alreadyEaten\n        ? state.mealLogs.filter((item) => !(item.date === date && item.mealId === id))\n        : [...state.mealLogs.filter((item) => !(item.date === date && item.mealId === id)), { date, mealId: id }],\n    });\n  }\n\n  function saveReadiness(readiness: Readiness) {\n    const date = todayKey();\n    setState((current) => {\n      const readinessCheckIns = [...current.readinessCheckIns.filter((item) => item.date !== date), { date, readiness }];\n      let next: AppState = { ...current, readinessCheckIns };\n      if (readiness === "low") {\n        const recovery = buildAdaptationReview(next, date).recommendations.find((item) => item.kind === "recovery");\n        if (recovery) next = { ...next, ...recovery.patch };\n      } else if (current.todayOverride.note === "Adjusted from today's readiness check-in.") {\n        next = { ...next, todayOverride: { ...current.todayOverride, minutes: null, note: null } };\n      }\n      return next;\n    });\n  }\n\n  function applyAdaptiveRecommendation(recommendation: AdaptationRecommendation) {\n    setUndoSnapshot(state);\n    const coachMessage = {\n      id: `coach-adapt-${Date.now()}`,\n      role: "coach" as const,\n      text: `I adapted the plan: ${recommendation.title}. ${recommendation.reason}`,\n      changeSummary: recommendation.title,\n      createdAt: new Date().toISOString(),\n    };\n    setState((current) => ({ ...current, ...recommendation.patch, coachHistory: [...current.coachHistory, coachMessage] }));\n  }\n\n  function updateMealPortion''')
+          replace(app,
+              '<TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />',
+              '<TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />')
+          replace(app,
+              'reset={() => { localStorage.removeItem("start-here-state-v6");',
+              'reset={() => { localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6");')
+          replace(app,
+              '''function TodayView({ state, targets, meals, workout, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {\n  const completedToday''',
+              '''function TodayView({ state, targets, meals, workout, adaptation, setReadiness, applyAdaptation, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {\n  const completedToday''')
+          replace(app,
+              '''  const nextMeal = meals.find((item) => !state.eatenMealIds.includes(item.meal.id)) ?? meals[0];\n  const nextIsWorkout = !completedToday;\n  return <div>''',
+              '''  const nextMeal = meals.find((item) => !state.eatenMealIds.includes(item.meal.id)) ?? meals[0];\n  const nextIsWorkout = !completedToday;\n  const readiness = adaptation.latestReadiness?.readiness ?? null;\n  const ongoingAdaptation = adaptation.recommendations.find((item) => item.scope === "ongoing");\n  return <div>''')
+          replace(app,
+              '''    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy="One useful thing at a time. You do not need a perfect day." action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />\n\n    <section className="hero-card">''',
+              '''    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy="One useful thing at a time. You do not need a perfect day." action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />\n\n    <section className="dashboard-card mb-3">\n      <div className="flex items-start justify-between gap-3"><div><p className="card-kicker">10-SECOND CHECK-IN</p><p className="mt-1 text-sm font-semibold">How ready do you feel today?</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">This only changes today unless a longer pattern shows up.</p></div><Icon name="spark" size={18} /></div>\n      <div className="mt-3 grid grid-cols-3 gap-2">{([['low','Running low'],['normal','Normal'],['high','Ready']] as const).map(([value, label]) => <button key={value} onClick={() => setReadiness(value)} className={cx("tiny-button justify-center", readiness === value && "tiny-active")}>{label}</button>)}</div>\n      {state.todayOverride.note === "Adjusted from today's readiness check-in." && <p className="mt-3 rounded-xl bg-[#ECF3EE] p-3 text-xs leading-5 text-[#526860]">I shortened today’s workout from your check-in. Tomorrow starts fresh.</p>}\n    </section>\n\n    <section className="hero-card">''')
+          replace(app,
+              '''    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${state.workoutLogs.filter((log) => log.completed).length} sessions logged`} /></div>\n\n    {state.detailLevel !== "simple"''',
+              '''    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${state.workoutLogs.filter((log) => log.completed).length} sessions logged`} /></div>\n\n    {ongoingAdaptation && <section className="mt-3 rounded-[24px] bg-[#ECF3EE] p-4"><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="spark" size={20} /></span><div className="flex-1"><p className="text-sm font-semibold">Your plan noticed a pattern</p><p className="mt-1 text-sm leading-5 text-[#596963]">{ongoingAdaptation.reason}</p><button onClick={() => applyAdaptation(ongoingAdaptation)} className="soft-button mt-3">Apply: {ongoingAdaptation.title}</button></div></div></section>}\n\n    {state.detailLevel !== "simple"''')
+
+          plan = "src/lib/startHerePlan.ts"
+          replace(plan,
+              'import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";\n',
+              'import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";\nimport { progressionCue } from "@/lib/startHereAdaptation";\n')
+          replace(plan,
+              '''export interface WorkoutExercise {\n  exercise: Exercise;\n  sets: number;\n  reps: string;\n  previous: string;\n}''',
+              '''export interface WorkoutExercise {\n  exercise: Exercise;\n  sets: number;\n  reps: string;\n  previous: string;\n  progression: string | null;\n}''')
+          replace(plan,
+              '''      reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : repTarget,\n      previous: previousPerformance(state, exercise.id),\n    }))''',
+              '''      reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : repTarget,\n      previous: previousPerformance(state, exercise.id),\n      progression: progressionCue(state, exercise.id),\n    }))''')
+
+          active = "src/components/ActiveWorkoutExperience.tsx"
+          replace(active,
+              '''                    <p className="mt-1 text-xs leading-5 text-[#77817D]">{item.exercise.cue}</p>\n                  </div>''',
+              '''                    <p className="mt-1 text-xs leading-5 text-[#77817D]">{item.exercise.cue}</p>\n                    {item.progression && <p className="mt-2 rounded-xl bg-[#ECF3EE] px-3 py-2 text-[11px] leading-5 text-[#526860]"><strong>Adaptive progression:</strong> {item.progression}</p>}\n                  </div>''')
+
+          client = "src/lib/startHereCoachClient.ts"
+          replace(client,
+              'import type { AppState } from "@/lib/startHereModels";\n',
+              'import type { AppState } from "@/lib/startHereModels";\nimport { buildAdaptationReview } from "@/lib/startHereAdaptation";\n')
+          replace(client,
+              '''  const trimmed = message.trim();\n  if (!trimmed) return { available: false };\n\n  try {''',
+              '''  const trimmed = message.trim();\n  if (!trimmed) return { available: false };\n  const adaptation = buildAdaptationReview(state, state.currentDay || new Date().toISOString().slice(0, 10));\n\n  try {''')
+          replace(client,
+              '''          healthFlags: state.healthFlags.slice(0, 10),\n          hideCalories: state.hideCalories,\n        },\n        history: state.coachHistory.slice(-8)''',
+              '''          healthFlags: state.healthFlags.slice(0, 10),\n          hideCalories: state.hideCalories,\n          readiness: adaptation.latestReadiness?.readiness ?? null,\n          workoutAdherence: adaptation.workoutAdherence,\n          mealAdherence: adaptation.mealAdherence,\n        },\n        history: state.coachHistory.slice(-6)''')
+
+          route = "src/app/api/start-here-coach/route.ts"
+          replace(route,
+              '''    healthFlags: z.array(z.string().max(120)).max(10),\n    hideCalories: z.boolean(),\n  }),''',
+              '''    healthFlags: z.array(z.string().max(120)).max(10),\n    hideCalories: z.boolean(),\n    readiness: z.enum(["low", "normal", "high"]).nullable(),\n    workoutAdherence: z.number().min(0).max(1.5).nullable(),\n    mealAdherence: z.number().min(0).max(1).nullable(),\n  }),''')
+          replace(route,
+              '''1) ANSWER QUESTIONS. Be a genuinely useful general fitness and wellness assistant. You can explain strength training, hypertrophy, cardio, exercise technique, programming, nutrition principles, protein, meal timing, recovery, sleep, soreness, habits, common supplements, body-composition concepts, and how to make a plan more realistic. Use the user's compact context when it is relevant. Be plainspoken, practical, and nuanced. Answer the question directly instead of forcing every conversation into a plan change.\n\n2) IDENTIFY PLAN CHANGES.''',
+              '''1) ANSWER QUESTIONS. Be a genuinely useful general fitness and wellness assistant. You can explain strength training, hypertrophy, cardio, exercise technique, programming, nutrition principles, protein, meal timing, recovery, sleep, soreness, habits, common supplements, body-composition concepts, and how to make a plan more realistic. Use the user's compact context when it is relevant. The context may include today's readiness plus recent workout and meal adherence; use those signals when helpful, but do not overreact to one day. Be plainspoken, practical, and nuanced. Answer the question directly instead of forcing every conversation into a plan change.\n\n2) IDENTIFY PLAN CHANGES.''')
+          PY
+      - name: Commit adaptive integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/StartHereAppV2.tsx src/components/ActiveWorkoutExperience.tsx src/lib/startHerePlan.ts src/lib/startHereCoachClient.ts src/app/api/start-here-coach/route.ts
+          git commit -m "Integrate adaptive planning loop"
+          git push origin dev
