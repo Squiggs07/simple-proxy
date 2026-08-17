@@ -2,23 +2,21 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Start Here — fitness & nutrition, minus the overwhelm",
+  title: "Start Here — your simple fitness plan",
   description:
-    "A friendly starting point for eating better and getting in shape. No jargon, no blank dashboards.",
+    "A calm, adaptive fitness and nutrition plan that turns goals into manageable meals, training, progress, and coaching.",
   appleWebApp: {
     capable: true,
     title: "Start Here",
     statusBarStyle: "default",
-  },
-  icons: {
-    apple: "/apple-touch-icon.png",
   },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#059669",
+  viewportFit: "cover",
+  themeColor: "#F7F4EE",
 };
 
 export default function RootLayout({
@@ -28,9 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-dvh flex flex-col bg-stone-50 text-stone-800">
-        {children}
-      </body>
+      <body className="min-h-dvh bg-[#F7F4EE] text-[#1D2926]">{children}</body>
     </html>
   );
 }
