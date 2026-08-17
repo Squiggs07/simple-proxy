@@ -1,5 +1,6 @@
 import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { progressionCue } from "@/lib/startHereAdaptation";
+import { exerciseBehaviorScore, mealBehaviorScore } from "@/lib/startHereBehavior";
 import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
@@ -21,6 +22,7 @@ export interface PlannedMeal {
 }
 
 export interface WorkoutExercise {
+  sourceExerciseId: string;
   exercise: Exercise;
   sets: number;
   reps: string;
@@ -108,6 +110,9 @@ export function rankMeals(state: AppState): RankedMeal[] {
       if (state.budget === "low" && meal.cost === "high") score -= 4;
       if (state.budget === "medium" && meal.cost !== "high") score += 1;
       if (mealContains(meal, state.dislikes)) score -= 6;
+      const learned = mealBehaviorScore(state, meal);
+      score += learned.score;
+      reasons.push(...learned.reasons);
       return { meal, score, reasons };
     })
     .sort((a, b) => b.score - a.score || a.meal.prepMinutes - b.meal.prepMinutes);
@@ -199,7 +204,7 @@ function exerciseBlocked(exercise: Exercise, state: AppState) {
   return state.dislikedExercises.some((term) => text.includes(term.toLowerCase()));
 }
 
-function previousPerformance(state: AppState, exerciseId: string) {
+export function exercisePreviousPerformance(state: AppState, exerciseId: string) {
   for (let sessionIndex = state.workoutLogs.length - 1; sessionIndex >= 0; sessionIndex -= 1) {
     const exerciseLog = state.workoutLogs[sessionIndex].exercises.find((item) => item.exerciseId === exerciseId);
     if (!exerciseLog) continue;
@@ -233,18 +238,24 @@ export function buildWorkout(state: AppState): WorkoutPlan {
       !exerciseBlocked(exercise, state) &&
       (!nervousBeginner || exercise.beginnerFriendly) &&
       (!olderBeginner || exercise.stable),
-    );
-    const preferred = candidates.find((exercise) => includesLoose(state.preferredExercises, exercise.name));
-    const exercise = preferred ?? candidates[0];
+    ).sort((a, b) => {
+      const explicitA = includesLoose(state.preferredExercises, a.name) ? 20 : 0;
+      const explicitB = includesLoose(state.preferredExercises, b.name) ? 20 : 0;
+      const focusA = a.focus.filter((focus) => includesLoose(state.focusAreas, focus)).length * 3;
+      const focusB = b.focus.filter((focus) => includesLoose(state.focusAreas, focus)).length * 3;
+      return (explicitB + focusB + exerciseBehaviorScore(state, b).score) - (explicitA + focusA + exerciseBehaviorScore(state, a).score);
+    });
+    const exercise = candidates[0];
     if (exercise && !chosen.some((item) => item.id === exercise.id)) chosen.push(exercise);
     if (chosen.length >= maxExercises) break;
   }
 
   if (chosen.length < Math.min(3, maxExercises)) {
-    for (const exercise of EXERCISES) {
-      if (equipmentMatches(exercise, equipment) && !exerciseBlocked(exercise, state) && !chosen.some((item) => item.id === exercise.id)) {
-        chosen.push(exercise);
-      }
+    const fallbackCandidates = EXERCISES
+      .filter((exercise) => equipmentMatches(exercise, equipment) && !exerciseBlocked(exercise, state) && !chosen.some((item) => item.id === exercise.id))
+      .sort((a, b) => exerciseBehaviorScore(state, b).score - exerciseBehaviorScore(state, a).score);
+    for (const exercise of fallbackCandidates) {
+      chosen.push(exercise);
       if (chosen.length >= maxExercises) break;
     }
   }
@@ -257,10 +268,11 @@ export function buildWorkout(state: AppState): WorkoutPlan {
     equipment,
     focus: state.focusAreas.length ? state.focusAreas.join(" + ") : "Full body",
     exercises: chosen.slice(0, maxExercises).map((exercise, index) => ({
+      sourceExerciseId: exercise.id,
       exercise,
       sets: index >= 4 ? 2 : baseSets + (consistentlyTrained && index < 2 && minutes >= 60 ? 1 : 0),
       reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : repTarget,
-      previous: previousPerformance(state, exercise.id),
+      previous: exercisePreviousPerformance(state, exercise.id),
       progression: progressionCue(state, exercise.id),
     })),
     note: olderBeginner
@@ -283,9 +295,15 @@ export function alternativeExercises(exerciseId: string, state: AppState) {
     .map((id) => EXERCISES.find((item) => item.id === id))
     .filter((item): item is Exercise => Boolean(item));
   const others = EXERCISES.filter((item) => item.pattern === current.pattern && item.id !== current.id);
+  const directIds = new Set(direct.map((item) => item.id));
   return [...direct, ...others]
     .filter((item, index, array) => array.findIndex((candidate) => candidate.id === item.id) === index)
     .filter((item) => equipmentMatches(item, equipment) && !exerciseBlocked(item, state))
+    .sort((a, b) => {
+      const learned = exerciseBehaviorScore(state, b).score - exerciseBehaviorScore(state, a).score;
+      if (learned !== 0) return learned;
+      return Number(directIds.has(b.id)) - Number(directIds.has(a.id));
+    })
     .slice(0, 4);
 }
 

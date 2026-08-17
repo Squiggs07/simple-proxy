@@ -15,6 +15,7 @@ export interface AdaptationReview {
   latestReadiness: ReadinessCheckIn | null;
   workoutAdherence: number | null;
   mealAdherence: number | null;
+  readinessLowRate: number | null;
   recommendations: AdaptationRecommendation[];
 }
 
@@ -34,6 +35,7 @@ function daysAgo(today: string, days: number) {
 
 function recentOngoingAdaptation(state: AppState, today: string, cooldownDays = 7) {
   const cutoff = daysAgo(today, cooldownDays - 1);
+  if (state.adaptationEvents.some((event) => event.kind !== "recovery" && event.date >= cutoff && event.date <= today)) return true;
   return state.coachHistory.some((message) =>
     message.role === "coach" &&
     message.text.startsWith("I adapted the plan:") &&
@@ -43,6 +45,13 @@ function recentOngoingAdaptation(state: AppState, today: string, cooldownDays = 
 
 export function latestReadiness(state: AppState, today: string): ReadinessCheckIn | null {
   return [...state.readinessCheckIns].reverse().find((item) => item.date === today) ?? null;
+}
+
+export function readinessLowRate(state: AppState, today: string, windowDays = 10): number | null {
+  const cutoff = daysAgo(today, windowDays - 1);
+  const checkIns = state.readinessCheckIns.filter((item) => item.date >= cutoff && item.date <= today);
+  if (checkIns.length < 5) return null;
+  return checkIns.filter((item) => item.readiness === "low").length / checkIns.length;
 }
 
 export function workoutAdherence(state: AppState, today: string, windowDays = 14): number | null {
@@ -135,6 +144,7 @@ export function buildAdaptationReview(state: AppState, today: string): Adaptatio
   const readiness = latestReadiness(state, today);
   const workoutRate = workoutAdherence(state, today);
   const mealRate = mealAdherence(state, today);
+  const lowReadinessRate = readinessLowRate(state, today);
   const recommendations: AdaptationRecommendation[] = [];
 
   if (readiness?.readiness === "low") {
@@ -153,7 +163,18 @@ export function buildAdaptationReview(state: AppState, today: string): Adaptatio
   }
 
   const coolingDown = recentOngoingAdaptation(state, today);
-  if (!coolingDown && workoutRate !== null && workoutRate < 0.6 && state.trainingDays > 1) {
+  if (!coolingDown && lowReadinessRate !== null && lowReadinessRate >= 0.5 && workoutRate !== null && workoutRate < 0.8 && state.sessionMinutes > 20) {
+    const shorter = Math.max(20, state.sessionMinutes - 10);
+    recommendations.push({
+      id: "recovery-shorter-baseline",
+      kind: "recovery",
+      scope: "ongoing",
+      title: `Make normal sessions ${shorter} minutes for now`,
+      reason: "Low-readiness check-ins have become a pattern and workout completion is also below plan. Shortening the normal session is a smaller change than cutting a training day and is easy to reverse.",
+      confidence: "moderate",
+      patch: { sessionMinutes: shorter },
+    });
+  } else if (!coolingDown && workoutRate !== null && workoutRate < 0.6 && state.trainingDays > 1) {
     recommendations.push({
       id: "schedule-less-often",
       kind: "schedule",
@@ -165,12 +186,12 @@ export function buildAdaptationReview(state: AppState, today: string): Adaptatio
     });
   }
 
-  if (!coolingDown) {
+  if (!coolingDown && !recommendations.some((item) => item.scope === "ongoing")) {
     const nutrition = nutritionRecommendation(state, mealRate);
     if (nutrition) recommendations.push(nutrition);
   }
 
-  return { latestReadiness: readiness, workoutAdherence: workoutRate, mealAdherence: mealRate, recommendations };
+  return { latestReadiness: readiness, workoutAdherence: workoutRate, mealAdherence: mealRate, readinessLowRate: lowReadinessRate, recommendations };
 }
 
 function completedExerciseSets(session: WorkoutSessionLog, exerciseId: string) {

@@ -10,7 +10,7 @@ import { MonthlySummarySheet } from "@/components/MonthlySummarySheet";
 import { TodayMealRow } from "@/components/TodayMealRow";
 import { WeightLogSheet } from "@/components/WeightLogSheet";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
-import { buildAdaptationReview, type AdaptationRecommendation } from "@/lib/startHereAdaptation";
+import { buildAdaptationReview, progressionCue, type AdaptationRecommendation } from "@/lib/startHereAdaptation";
 import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
@@ -21,6 +21,7 @@ import {
   buildDayMeals,
   buildWorkout,
   currentTargets,
+  exercisePreviousPerformance,
   mealFamilyKey,
   rankMeals,
   reviewProgress,
@@ -132,7 +133,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         const merged = saved ? mergeStoredState(JSON.parse(saved)) : INITIAL_STATE;
         const date = todayKey();
         setState(merged.currentDay === date ? merged : {
@@ -152,7 +153,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v7", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v8", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -167,8 +168,14 @@ export function StartHereAppV2() {
     return {
       ...baseWorkout,
       exercises: baseWorkout.exercises.map((item) => {
-        const alt = exerciseSwaps[item.exercise.id] ? allAlternatives.get(exerciseSwaps[item.exercise.id]) : undefined;
-        return alt ? { ...item, exercise: alt } : item;
+        const replacementId = exerciseSwaps[item.sourceExerciseId];
+        const alt = replacementId ? allAlternatives.get(replacementId) : undefined;
+        return alt ? {
+          ...item,
+          exercise: alt,
+          previous: exercisePreviousPerformance(state, alt.id),
+          progression: progressionCue(state, alt.id),
+        } : item;
       }),
     };
   }, [baseWorkout, exerciseSwaps, state]);
@@ -198,7 +205,12 @@ export function StartHereAppV2() {
   }
 
   function swapMeal(sourceMealId: string, replacement: Meal) {
-    patch({ swappedMealIds: { ...state.swappedMealIds, [sourceMealId]: replacement.id } });
+    const date = todayKey();
+    const currentMealId = state.swappedMealIds[sourceMealId] ?? sourceMealId;
+    patch({
+      swappedMealIds: { ...state.swappedMealIds, [sourceMealId]: replacement.id },
+      mealSwapLogs: [...state.mealSwapLogs, { date, sourceMealId: currentMealId, chosenMealId: replacement.id }],
+    });
     setSwapMealId(null);
   }
 
@@ -245,6 +257,7 @@ export function StartHereAppV2() {
 
   function applyAdaptiveRecommendation(recommendation: AdaptationRecommendation) {
     setUndoSnapshot(state);
+    const date = todayKey();
     const coachMessage = {
       id: `coach-adapt-${Date.now()}`,
       role: "coach" as const,
@@ -252,7 +265,13 @@ export function StartHereAppV2() {
       changeSummary: recommendation.title,
       createdAt: new Date().toISOString(),
     };
-    setState((current) => ({ ...current, ...recommendation.patch, coachHistory: [...current.coachHistory, coachMessage] }));
+    const event = { id: `${recommendation.id}-${Date.now()}`, date, kind: recommendation.kind, title: recommendation.title };
+    setState((current) => ({
+      ...current,
+      ...recommendation.patch,
+      adaptationEvents: [...current.adaptationEvents, event],
+      coachHistory: [...current.coachHistory, coachMessage],
+    }));
   }
 
   function updateMealPortion(sourceMealId: string, portion: MealPortion) {
@@ -278,6 +297,15 @@ export function StartHereAppV2() {
 
   function startWorkout() {
     setActiveWorkout(true);
+  }
+
+  function swapExercise(slotExerciseId: string, currentExerciseId: string, replacementId: string) {
+    const date = todayKey();
+    setExerciseSwaps((current) => ({ ...current, [slotExerciseId]: replacementId }));
+    setState((current) => ({
+      ...current,
+      exerciseSwapLogs: [...current.exerciseSwapLogs, { date, sourceExerciseId: currentExerciseId, chosenExerciseId: replacementId }],
+    }));
   }
 
   function finishWorkout(exercises: AppState["workoutLogs"][number]["exercises"]) {
@@ -382,7 +410,7 @@ export function StartHereAppV2() {
         state={state}
         onClose={() => setActiveWorkout(false)}
         onFinish={finishWorkout}
-        onSwap={(exerciseId, replacementId) => setExerciseSwaps((current) => ({ ...current, [exerciseId]: replacementId }))}
+        onSwap={swapExercise}
       />
     );
   }
@@ -412,7 +440,7 @@ export function StartHereAppV2() {
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
       {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>

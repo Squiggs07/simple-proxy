@@ -73,6 +73,41 @@ describe("Start Here planning", () => {
     expect(meals.some((item) => item.meal.type === "Snack")).toBe(true);
   });
 
+  it("raises meals the user repeatedly chooses through swaps", () => {
+    const learnedState = {
+      ...INITIAL_STATE,
+      currentDay: "2026-08-17",
+      likedFoods: [],
+      cuisines: [],
+      mealFormats: [],
+      mealSwapLogs: [
+        { date: "2026-08-10", sourceMealId: "turkey-pesto-pasta", chosenMealId: "salmon-potato-plate" },
+        { date: "2026-08-15", sourceMealId: "steak-taco-bowl", chosenMealId: "salmon-potato-plate" },
+      ],
+    };
+    const learned = rankMeals(learnedState).find((item) => item.meal.id === "salmon-potato-plate")!;
+    const baseline = rankMeals({ ...learnedState, mealSwapLogs: [] }).find((item) => item.meal.id === "salmon-potato-plate")!;
+    expect(learned.score).toBeGreaterThan(baseline.score);
+    expect(learned.reasons.join(" ")).toContain("repeatedly");
+  });
+
+  it("learns repeated exercise replacements when building future workouts", () => {
+    const state = {
+      ...INITIAL_STATE,
+      currentDay: "2026-08-17",
+      experience: "experienced" as const,
+      liftingHistory: "consistent" as const,
+      confidence: "comfortable" as const,
+      exerciseSwapLogs: [
+        { date: "2026-08-10", sourceExerciseId: "reverse-lunge", chosenExerciseId: "step-up" },
+        { date: "2026-08-15", sourceExerciseId: "reverse-lunge", chosenExerciseId: "step-up" },
+      ],
+    };
+    const workout = buildWorkout(state);
+    expect(workout.exercises.some((item) => item.exercise.id === "step-up")).toBe(true);
+    expect(workout.exercises.some((item) => item.exercise.id === "reverse-lunge")).toBe(false);
+  });
+
   it("builds a shorter workout from a today-only time override", () => {
     const state = { ...INITIAL_STATE, todayOverride: { minutes: 20, equipment: null, note: "test" } };
     const workout = buildWorkout(state);

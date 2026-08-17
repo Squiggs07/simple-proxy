@@ -73,6 +73,36 @@ describe("adaptive planning", () => {
     expect(buildAdaptationReview(current, "2026-08-17").recommendations.some((item) => item.scope === "ongoing")).toBe(false);
   });
 
+  it("uses repeated low readiness plus missed workouts to suggest a smaller normal session", () => {
+    const current = state({
+      trainingDays: 4,
+      sessionMinutes: 50,
+      readinessCheckIns: [
+        { date: "2026-08-09", readiness: "low" },
+        { date: "2026-08-11", readiness: "low" },
+        { date: "2026-08-13", readiness: "normal" },
+        { date: "2026-08-15", readiness: "low" },
+        { date: "2026-08-17", readiness: "normal" },
+      ],
+      workoutLogs: [
+        { id: "w1", date: "2026-08-08", workoutName: "A", minutes: 50, exercises: [], completed: true },
+        { id: "w2", date: "2026-08-15", workoutName: "A", minutes: 50, exercises: [], completed: true },
+      ],
+    });
+    const ongoing = buildAdaptationReview(current, "2026-08-17").recommendations.find((item) => item.scope === "ongoing");
+    expect(ongoing?.kind).toBe("recovery");
+    expect(ongoing?.patch.sessionMinutes).toBe(40);
+  });
+
+  it("does not stack ongoing adaptations during the cooldown window", () => {
+    const current = state({
+      trainingDays: 4,
+      adaptationEvents: [{ id: "prior", date: "2026-08-15", kind: "schedule", title: "Changed schedule" }],
+      workoutLogs: [{ id: "w1", date: "2026-08-10", workoutName: "A", minutes: 40, exercises: [], completed: true }],
+    });
+    expect(buildAdaptationReview(current, "2026-08-17").recommendations.some((item) => item.scope === "ongoing")).toBe(false);
+  });
+
   it("recognizes repeated top-of-range performance as a progression signal", () => {
     const current = state({
       workoutLogs: [
