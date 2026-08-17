@@ -1,6 +1,7 @@
 import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { progressionCue } from "@/lib/startHereAdaptation";
 import { exerciseBehaviorScore, mealBehaviorScore } from "@/lib/startHereBehavior";
+import type { TrainingSplit, WorkoutVariant } from "@/lib/startHereWeek";
 import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
@@ -37,6 +38,12 @@ export interface WorkoutPlan {
   focus: string;
   exercises: WorkoutExercise[];
   note: string;
+}
+
+export interface WorkoutBuildOptions {
+  split?: TrainingSplit;
+  variant?: WorkoutVariant;
+  name?: string;
 }
 
 function includesLoose(items: string[], candidate: string) {
@@ -219,16 +226,39 @@ export function exercisePreviousPerformance(state: AppState, exerciseId: string)
   return "No previous log";
 }
 
-export function buildWorkout(state: AppState): WorkoutPlan {
+function patternsForWorkout(split: TrainingSplit, olderBeginner: boolean): Exercise["pattern"][] {
+  if (split === "upper") return ["push", "pull", "push", "pull", "core", "carry"];
+  if (split === "lower") return ["squat", "hinge", olderBeginner ? "balance" : "single-leg", "squat", "hinge", "core"];
+  return ["squat", "push", "pull", "hinge", olderBeginner ? "balance" : "single-leg", "core"];
+}
+
+function patternFitsSplit(pattern: Exercise["pattern"], split: TrainingSplit) {
+  if (split === "upper") return ["push", "pull", "core", "carry", "balance"].includes(pattern);
+  if (split === "lower") return ["squat", "hinge", "single-leg", "balance", "core", "carry"].includes(pattern);
+  return true;
+}
+
+function exercisePlanScore(exercise: Exercise, state: AppState, variant: WorkoutVariant) {
+  const explicit = includesLoose(state.preferredExercises, exercise.name) ? 20 : 0;
+  const focus = exercise.focus.filter((item) => includesLoose(state.focusAreas, item)).length * 3;
+  const learned = exerciseBehaviorScore(state, exercise).score;
+  const catalogIndex = EXERCISES.findIndex((item) => item.id === exercise.id);
+  const rotation = variant === "B" && catalogIndex % 2 === 1 ? 2 : 0;
+  return explicit + focus + learned + rotation;
+}
+
+export function buildWorkout(state: AppState, options: WorkoutBuildOptions = {}): WorkoutPlan {
   const minutes = state.todayOverride.minutes ?? state.sessionMinutes;
   const equipment = state.todayOverride.equipment ?? state.equipment;
+  const split = options.split ?? "full-body";
+  const variant = options.variant ?? "A";
   const olderBeginner = state.age >= 60 && state.experience === "new";
   const nervousBeginner = state.confidence === "nervous" || state.liftingHistory === "none";
   const consistentlyTrained = state.liftingHistory === "consistent" || state.experience === "experienced";
   const returning = state.liftingHistory === "returning";
   const hasBaseline = Object.entries(state.liftingBaseline).some(([key, value]) => key !== "note" && value !== null);
   const maxExercises = minutes <= 20 ? 3 : minutes <= 30 ? 4 : minutes <= 45 ? 5 : 6;
-  const desiredPatterns: Exercise["pattern"][] = ["squat", "push", "pull", "hinge", olderBeginner ? "balance" : "single-leg", "core"];
+  const desiredPatterns = patternsForWorkout(split, olderBeginner);
   const chosen: Exercise[] = [];
 
   for (const pattern of desiredPatterns) {
@@ -237,23 +267,25 @@ export function buildWorkout(state: AppState): WorkoutPlan {
       equipmentMatches(exercise, equipment) &&
       !exerciseBlocked(exercise, state) &&
       (!nervousBeginner || exercise.beginnerFriendly) &&
-      (!olderBeginner || exercise.stable),
-    ).sort((a, b) => {
-      const explicitA = includesLoose(state.preferredExercises, a.name) ? 20 : 0;
-      const explicitB = includesLoose(state.preferredExercises, b.name) ? 20 : 0;
-      const focusA = a.focus.filter((focus) => includesLoose(state.focusAreas, focus)).length * 3;
-      const focusB = b.focus.filter((focus) => includesLoose(state.focusAreas, focus)).length * 3;
-      return (explicitB + focusB + exerciseBehaviorScore(state, b).score) - (explicitA + focusA + exerciseBehaviorScore(state, a).score);
-    });
+      (!olderBeginner || exercise.stable) &&
+      !chosen.some((item) => item.id === exercise.id),
+    ).sort((a, b) => exercisePlanScore(b, state, variant) - exercisePlanScore(a, state, variant));
     const exercise = candidates[0];
-    if (exercise && !chosen.some((item) => item.id === exercise.id)) chosen.push(exercise);
+    if (exercise) chosen.push(exercise);
     if (chosen.length >= maxExercises) break;
   }
 
-  if (chosen.length < Math.min(3, maxExercises)) {
+  if (chosen.length < maxExercises) {
     const fallbackCandidates = EXERCISES
-      .filter((exercise) => equipmentMatches(exercise, equipment) && !exerciseBlocked(exercise, state) && !chosen.some((item) => item.id === exercise.id))
-      .sort((a, b) => exerciseBehaviorScore(state, b).score - exerciseBehaviorScore(state, a).score);
+      .filter((exercise) =>
+        equipmentMatches(exercise, equipment) &&
+        patternFitsSplit(exercise.pattern, split) &&
+        !exerciseBlocked(exercise, state) &&
+        (!nervousBeginner || exercise.beginnerFriendly) &&
+        (!olderBeginner || exercise.stable) &&
+        !chosen.some((item) => item.id === exercise.id),
+      )
+      .sort((a, b) => exercisePlanScore(b, state, variant) - exercisePlanScore(a, state, variant));
     for (const exercise of fallbackCandidates) {
       chosen.push(exercise);
       if (chosen.length >= maxExercises) break;
@@ -261,12 +293,21 @@ export function buildWorkout(state: AppState): WorkoutPlan {
   }
 
   const baseSets = minutes <= 20 ? 2 : consistentlyTrained || returning ? 3 : 2;
-  const repTarget = consistentlyTrained ? "6–10 reps" : returning ? "8–12 reps" : "8–12 reps";
+  const repTarget = consistentlyTrained ? "6–10 reps" : "8–12 reps";
+  const defaultName = split === "full-body"
+    ? `Full Body ${variant}`
+    : `${split === "upper" ? "Upper Body" : "Lower Body"} ${variant}`;
+  const name = options.name ?? defaultName;
+  const splitFocus = split === "full-body" ? "Full body" : split === "upper" ? "Upper body" : "Lower body";
+  const rotationNote = split === "full-body"
+    ? `${name} alternates with the other full-body session so the week stays repeatable without being identical.`
+    : `${name} is one part of your rotating upper/lower week.`;
+
   return {
-    name: state.trainingDays <= 3 ? "Full Body A" : "Strength A",
+    name,
     minutes,
     equipment,
-    focus: state.focusAreas.length ? state.focusAreas.join(" + ") : "Full body",
+    focus: state.focusAreas.length ? `${splitFocus} · ${state.focusAreas.join(" + ")}` : splitFocus,
     exercises: chosen.slice(0, maxExercises).map((exercise, index) => ({
       sourceExerciseId: exercise.id,
       exercise,
@@ -276,14 +317,14 @@ export function buildWorkout(state: AppState): WorkoutPlan {
       progression: progressionCue(state, exercise.id),
     })),
     note: olderBeginner
-      ? "Stable movements, lower starting volume, and a little balance work. The goal is confidence and capability."
+      ? `${rotationNote} Stable movements, lower starting volume, and a little balance work keep the emphasis on confidence and capability.`
       : state.liftingHistory === "none"
-        ? "You marked yourself as new to lifting, so the first week starts conservatively and leaves 2–3 good reps in reserve."
+        ? `${rotationNote} The first weeks stay conservative and leave 2–3 good reps in reserve.`
         : returning
-          ? `You have lifted before${hasBaseline ? " and gave us a rough strength baseline" : ""}, so the plan starts with moderate volume while you rebuild consistency.`
+          ? `${rotationNote} You have lifted before${hasBaseline ? " and gave us a rough strength baseline" : ""}, so volume starts moderate while consistency comes back.`
           : consistentlyTrained
-            ? `You already train consistently${hasBaseline ? " and gave us a rough working-set baseline" : ""}, so the plan starts with enough volume to feel like real training without guessing your loads.`
-            : "Keep the main movements repeatable so progression is easy to see.",
+            ? `${rotationNote} ${hasBaseline ? "Your strength baseline and logged performance drive the progression cues instead of guessing loads." : "Your logged performance drives the progression cues instead of guessing loads."}`
+            : `${rotationNote} Keep the main movements repeatable so progression is easy to see.`,
   };
 }
 

@@ -108,6 +108,18 @@ describe("Start Here planning", () => {
     expect(workout.exercises.some((item) => item.exercise.id === "reverse-lunge")).toBe(false);
   });
 
+  it("builds different upper and lower sessions from the weekly identity", () => {
+    const state = { ...INITIAL_STATE, trainingDays: 4, liftingHistory: "consistent" as const, experience: "experienced" as const, confidence: "comfortable" as const };
+    const upper = buildWorkout(state, { split: "upper", variant: "A", name: "Upper Body A" });
+    const lower = buildWorkout(state, { split: "lower", variant: "A", name: "Lower Body A" });
+    expect(upper.name).toBe("Upper Body A");
+    expect(lower.name).toBe("Lower Body A");
+    expect(upper.exercises.some((item) => item.exercise.pattern === "push")).toBe(true);
+    expect(upper.exercises.some((item) => item.exercise.pattern === "pull")).toBe(true);
+    expect(lower.exercises.some((item) => item.exercise.pattern === "squat")).toBe(true);
+    expect(lower.exercises.some((item) => item.exercise.pattern === "hinge")).toBe(true);
+  });
+
   it("builds a shorter workout from a today-only time override", () => {
     const state = { ...INITIAL_STATE, todayOverride: { minutes: 20, equipment: null, note: "test" } };
     const workout = buildWorkout(state);

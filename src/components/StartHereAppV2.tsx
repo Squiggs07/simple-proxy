@@ -41,6 +41,15 @@ import {
   type Readiness,
   type Variety,
 } from "@/lib/startHereModels";
+import {
+  WEEKDAYS,
+  buildTrainingWeek,
+  daysLabel,
+  defaultTrainingDays,
+  normalizePreferredDays,
+  type TrainingWeekPlan,
+  type Weekday,
+} from "@/lib/startHereWeek";
 
 type IconName =
   | "home" | "eat" | "train" | "progress" | "coach" | "arrow" | "back"
@@ -159,7 +168,14 @@ export function StartHereAppV2() {
   const targets = useMemo(() => currentTargets(state), [state]);
   const plannedMeals = useMemo(() => buildDayMeals(state, targets.calories, targets.proteinGrams), [state, targets.calories, targets.proteinGrams]);
   const rankedMeals = useMemo(() => rankMeals(state), [state]);
-  const baseWorkout = useMemo(() => buildWorkout(state), [state]);
+  const currentDate = state.currentDay || todayKey();
+  const trainingWeek = useMemo(() => buildTrainingWeek(state, currentDate), [state, currentDate]);
+  const plannedWorkoutDay = trainingWeek.today.scheduled && !trainingWeek.today.completed ? trainingWeek.today : trainingWeek.nextTrainingDay;
+  const baseWorkout = useMemo(() => buildWorkout(state, {
+    split: plannedWorkoutDay.split ?? "full-body",
+    variant: plannedWorkoutDay.variant ?? "A",
+    name: plannedWorkoutDay.workoutName ?? undefined,
+  }), [state, plannedWorkoutDay.split, plannedWorkoutDay.variant, plannedWorkoutDay.workoutName]);
   const effectiveWorkout = useMemo<WorkoutPlan>(() => {
     const allAlternatives = new Map<string, Exercise>();
     for (const item of baseWorkout.exercises) {
@@ -420,13 +436,13 @@ export function StartHereAppV2() {
       <div className="start-shell">
         <main className="px-5 pb-28 pt-[max(18px,env(safe-area-inset-top))]">
           {tab === "today" && (
-            <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
+            <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} week={trainingWeek} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
           )}
           {tab === "eat" && (
             <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
           )}
           {tab === "train" && (
-            <TrainView state={state} workout={effectiveWorkout} startWorkout={startWorkout} setTab={setTab} />
+            <TrainView state={state} workout={effectiveWorkout} week={trainingWeek} startWorkout={startWorkout} setTab={setTab} />
           )}
           {tab === "progress" && (
             <ProgressView state={state} review={progressReview} targets={targets} patch={patch} setTab={setTab} openWeightLog={() => setShowWeightLog(true)} openMonthlySummary={() => setShowMonthlySummary(true)} />
@@ -532,7 +548,7 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
         {step === 4 && (
           <OnboardingSection title="What can you realistically train?" copy="A plan that fits three days beats a perfect six-day plan you cannot keep." footer={<Continue onClick={() => setStep(5)} />}>
             <div className="mt-5 space-y-5">
-              <ChoiceGroup label="Days per week" hint="2–3 is a strong beginner starting point."><div className="chip-row">{[1,2,3,4,5,6].map((n) => <button key={n} onClick={() => patch({ trainingDays: n })} className={cx("number-chip", state.trainingDays === n && "chip-active")}>{n}</button>)}</div></ChoiceGroup>
+              <TrainingScheduleControls state={state} patch={patch} />
               <ChoiceGroup label="Time per session"><div className="chip-row wrap">{[15,20,30,45,60,75,90].map((n) => <button key={n} onClick={() => patch({ sessionMinutes: n })} className={cx("text-chip", state.sessionMinutes === n && "chip-active")}>{n} min</button>)}</div></ChoiceGroup>
               <ChoiceGroup label="Where / equipment"><div className="chip-row wrap">{(["gym","dumbbells","home","mixed","unsure"] as Equipment[]).map((item) => <button key={item} onClick={() => patch({ equipment: item })} className={cx("text-chip capitalize", state.equipment === item && "chip-active")}>{item}</button>)}</div></ChoiceGroup>
               <TrainingBaselineFields state={state} patch={patch} />
@@ -609,6 +625,24 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
   );
 }
 
+function TrainingScheduleControls({ state, patch }: { state: AppState; patch: (update: Partial<AppState>) => void }) {
+  const selected = normalizePreferredDays(state.preferredDays, state.trainingDays);
+  function setFrequency(days: number) {
+    patch({ trainingDays: days, preferredDays: defaultTrainingDays(days) });
+  }
+  function chooseDay(day: Weekday) {
+    if (selected.includes(day)) return;
+    const targetIndex = WEEKDAYS.indexOf(day);
+    const nearest = [...selected].sort((a, b) => Math.abs(WEEKDAYS.indexOf(a) - targetIndex) - Math.abs(WEEKDAYS.indexOf(b) - targetIndex))[0];
+    const next = [...selected.filter((item) => item !== nearest), day].sort((a, b) => WEEKDAYS.indexOf(a) - WEEKDAYS.indexOf(b));
+    patch({ preferredDays: next });
+  }
+  return <div className="space-y-4">
+    <ChoiceGroup label="Days per week" hint="2–3 is a strong beginner starting point."><div className="chip-row">{[1,2,3,4,5,6].map((n) => <button key={n} onClick={() => setFrequency(n)} className={cx("number-chip", state.trainingDays === n && "chip-active")}>{n}</button>)}</div></ChoiceGroup>
+    <ChoiceGroup label="Preferred days" hint="Tap another day to swap it in."><div className="chip-row wrap">{WEEKDAYS.map((day) => <button key={day} onClick={() => chooseDay(day)} className={cx("text-chip", selected.includes(day) && "chip-active")}>{day}</button>)}</div></ChoiceGroup>
+  </div>;
+}
+
 function OnboardingSection({ title, copy, eyebrow, children, footer }: { title: string; copy: string; eyebrow?: string; children: ReactNode; footer?: ReactNode }) {
   return <section className="flex flex-1 flex-col">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className="start-title">{title}</h1><p className="start-subtitle">{copy}</p>{children}{footer && <div className="mt-auto pt-5">{footer}</div>}</section>;
 }
@@ -649,15 +683,30 @@ function PageHeader({ eyebrow, title, copy, action }: { eyebrow?: string; title:
   return <header className="mb-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0">{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className="text-[34px] font-semibold leading-[1.04] tracking-[-.04em]">{title}</h1></div>{action}</div>{copy && <p className="mt-2 text-[15px] leading-6 text-[#68736F]">{copy}</p>}</header>;
 }
 
-function TodayView({ state, targets, meals, workout, adaptation, setReadiness, applyAdaptation, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {
-  const completedToday = state.workoutLogs.some((log) => log.date === todayKey() && log.completed);
+function TrainingWeekStrip({ week }: { week: TrainingWeekPlan }) {
+  const extra = Math.max(0, week.completedTotal - week.completedScheduled);
+  return <section className="dashboard-card mt-3">
+    <div className="flex items-center justify-between gap-3"><div><p className="card-kicker">THIS WEEK</p><p className="mt-1 text-sm font-semibold">{week.completedScheduled} of {week.scheduledCount} planned sessions</p></div><span className="text-xs font-semibold text-[#6E7874]">{daysLabel(week.preferredDays)}</span></div>
+    <div className="mt-4 grid grid-cols-7 gap-1.5">{week.days.map((day) => {
+      const isToday = day.date === week.today.date;
+      const done = day.trained;
+      return <div key={day.date} className={cx("rounded-xl px-1 py-2 text-center", isToday ? "bg-[#ECF3EE]" : "bg-[#FCFAF6]")}><p className="text-[9px] font-bold uppercase text-[#8A938F]">{day.day}</p><div className={cx("mx-auto mt-1.5 grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold", done ? "bg-[#17483F] text-white" : day.scheduled ? "border border-[#9AB2A8] text-[#17483F]" : "text-[#B3B9B6]")}>{done ? "✓" : day.scheduled ? "•" : "–"}</div></div>;
+    })}</div>
+    <p className="mt-3 text-xs leading-5 text-[#7B8581]">Next: {week.nextTrainingDay.day} · {week.nextTrainingDay.workoutName}{extra ? ` · ${extra} extra session${extra === 1 ? "" : "s"} also counted` : ""}</p>
+  </section>;
+}
+
+function TodayView({ state, targets, meals, workout, week, adaptation, setReadiness, applyAdaptation, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; week: TrainingWeekPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {
+  const completedToday = week.today.trained;
   const proteinLogged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id)).reduce((sum, item) => sum + item.protein, 0);
   const nextMeal = meals.find((item) => !state.eatenMealIds.includes(item.meal.id)) ?? meals[0];
-  const nextIsWorkout = !completedToday;
+  const overrideActive = Boolean(state.todayOverride.minutes || state.todayOverride.equipment || state.todayOverride.note);
+  const workoutDueToday = week.today.scheduled && !week.today.completed;
+  const nextIsWorkout = !completedToday && (workoutDueToday || overrideActive);
   const readiness = adaptation.latestReadiness?.readiness ?? null;
   const ongoingAdaptation = adaptation.recommendations.find((item) => item.scope === "ongoing");
   return <div>
-    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy="One useful thing at a time. You do not need a perfect day." action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
+    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy={week.today.scheduled ? "Today fits your normal training rhythm." : `No workout is scheduled today. Your next planned session is ${week.nextTrainingDay.day}.`} action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
 
     <section className="dashboard-card mb-3">
       <div className="flex items-start justify-between gap-3"><div><p className="card-kicker">10-SECOND CHECK-IN</p><p className="mt-1 text-sm font-semibold">How ready do you feel today?</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">This only changes today unless a longer pattern shows up.</p></div><Icon name="spark" size={18} /></div>
@@ -672,12 +721,14 @@ function TodayView({ state, targets, meals, workout, adaptation, setReadiness, a
       <div className="mt-5 flex gap-2"><button onClick={nextIsWorkout ? onStartWorkout : () => nextMeal && onMeal(nextMeal.meal.id)} className="start-primary flex-1">{nextIsWorkout ? "Start workout" : "View meal"}<Icon name="arrow" size={17} /></button><button onClick={() => setTab("coach")} className="icon-button" aria-label="Make this easier"><Icon name="coach" size={20} /></button></div>
     </section>
 
+    <TrainingWeekStrip week={week} />
+
     <section className="dashboard-card mt-3">
       <div className="flex items-center justify-between"><div><div className="card-kicker">FOOD TODAY</div><p className="mt-1 text-sm text-[#68736F]">{state.eatenMealIds.length} logged · {proteinLogged}g protein so far</p></div><button onClick={() => setTab("eat")} className="text-link">See all</button></div>
       <div className="mt-4 space-y-2">{meals.slice(0, 3).map((item) => <TodayMealRow key={item.sourceMealId} item={item} eaten={state.eatenMealIds.includes(item.meal.id)} onOpen={() => onMeal(item.meal.id)} onSwap={() => onSwap(item.sourceMealId)} />)}</div>
     </section>
 
-    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${state.workoutLogs.filter((log) => log.completed).length} sessions logged`} /></div>
+    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${week.completedScheduled} / ${week.scheduledCount} planned`} /></div>
 
     {ongoingAdaptation && <section className="mt-3 rounded-[24px] bg-[#ECF3EE] p-4"><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="spark" size={20} /></span><div className="flex-1"><p className="text-sm font-semibold">Your plan noticed a pattern</p><p className="mt-1 text-sm leading-5 text-[#596963]">{ongoingAdaptation.reason}</p><button onClick={() => applyAdaptation(ongoingAdaptation)} className="soft-button mt-3">Apply: {ongoingAdaptation.title}</button></div></div></section>}
 
@@ -713,13 +764,20 @@ function PrepCard({ meals }: { meals: PlannedMeal[] }) {
   return <section className="dashboard-card mt-4"><div className="flex items-center gap-2"><span className="text-[#17483F]"><Icon name="grocery" size={19} /></span><div><p className="font-semibold">Grocery & prep</p><p className="text-xs text-[#7D8582]">Built from the meals already in your day.</p></div></div><div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2">{ingredients.slice(0, 10).map((item) => <div key={item} className="flex items-center gap-2 text-xs text-[#58645F]"><span className="h-1.5 w-1.5 rounded-full bg-[#6E9084]" />{item}</div>)}</div><p className="mt-4 rounded-xl bg-[#FCFAF6] p-3 text-xs leading-5 text-[#707A76]">Easy prep: cook the main protein and starch in batches, then keep sauces and vegetables separate so meals do not feel identical.</p></section>;
 }
 
-function TrainView({ state, workout, startWorkout, setTab }: { state: AppState; workout: WorkoutPlan; startWorkout: () => void; setTab: (tab: AppTab) => void }) {
-  const completed = state.workoutLogs.filter((log) => log.completed).length;
+function TrainView({ state, workout, week, startWorkout, setTab }: { state: AppState; workout: WorkoutPlan; week: TrainingWeekPlan; startWorkout: () => void; setTab: (tab: AppTab) => void }) {
+  const overrideActive = Boolean(state.todayOverride.minutes || state.todayOverride.equipment || state.todayOverride.note);
+  const canStart = !week.today.trained && (week.today.scheduled || overrideActive);
+  const todayDone = week.today.trained;
+  const title = canStart ? "Today’s training." : todayDone ? "Today is handled." : "Your training week.";
+  const copy = canStart
+    ? `${workout.minutes} minutes · ${workout.equipment} · ${workout.focus}`
+    : `Next planned session: ${week.nextTrainingDay.day} · ${week.nextTrainingDay.workoutName}`;
   return <div>
-    <PageHeader eyebrow="TRAIN" title="A workout you can repeat." copy={`${workout.minutes} minutes · ${workout.equipment} · ${workout.focus}`} />
-    <section className="hero-card"><div className="flex items-center justify-between"><span className="hero-pill">{state.trainingDays <= 3 ? "FULL BODY" : "STRENGTH"}</span><span className="text-xs text-[#68736F]">{workout.exercises.length} movements</span></div><h2 className="mt-4 text-[25px] font-semibold tracking-[-.03em]">{workout.name}</h2><p className="mt-2 text-sm leading-6 text-[#68736F]">{workout.note}</p>{state.todayOverride.note && <div className="mt-3 rounded-xl bg-[#EAE6F5] px-3 py-2 text-xs text-[#625F71]">Today-only override active. Your normal program is unchanged.</div>}<button onClick={startWorkout} className="start-primary mt-5 w-full">Start workout <Icon name="arrow" size={17} /></button></section>
-    <div className="mt-4 space-y-2.5">{workout.exercises.map((item, index) => <article key={item.exercise.id} className="exercise-row"><span className="exercise-number">{index + 1}</span><div className="min-w-0 flex-1"><h3 className="font-semibold">{item.exercise.name}</h3><p className="mt-1 text-sm text-[#68736F]">{item.sets} sets · {item.reps}</p>{state.detailLevel === "detailed" && <><p className="mt-1 text-xs text-[#909895]">Previous: {item.previous}</p><p className="mt-1 text-xs leading-5 text-[#7A8581]">{item.exercise.cue}</p></>}</div><span className="text-[#AAB2AE]"><Icon name="chevron" size={17} /></span></article>)}</div>
-    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="This week" value={`${Math.min(completed, state.trainingDays)} of ${state.trainingDays} sessions`} /><MiniCard label="Session length" value={`${workout.minutes} minutes`} /></div>
+    <PageHeader eyebrow="TRAIN" title={title} copy={copy} />
+    <TrainingWeekStrip week={week} />
+    <section className="hero-card mt-3"><div className="flex items-center justify-between"><span className="hero-pill">{canStart ? "TODAY" : "NEXT SESSION"}</span><span className="text-xs text-[#68736F]">{workout.exercises.length} movements</span></div><h2 className="mt-4 text-[25px] font-semibold tracking-[-.03em]">{workout.name}</h2><p className="mt-2 text-sm leading-6 text-[#68736F]">{workout.note}</p>{state.todayOverride.note && <div className="mt-3 rounded-xl bg-[#EAE6F5] px-3 py-2 text-xs text-[#625F71]">Today-only override active. Your normal program is unchanged.</div>}{canStart ? <button onClick={startWorkout} className="start-primary mt-5 w-full">Start workout <Icon name="arrow" size={17} /></button> : <button onClick={() => setTab("coach")} className="start-secondary mt-5 w-full">Need to move the session? Ask Coach</button>}</section>
+    <div className="mt-4 space-y-2.5">{workout.exercises.map((item, index) => <article key={item.sourceExerciseId} className="exercise-row"><span className="exercise-number">{index + 1}</span><div className="min-w-0 flex-1"><h3 className="font-semibold">{item.exercise.name}</h3><p className="mt-1 text-sm text-[#68736F]">{item.sets} sets · {item.reps}</p>{state.detailLevel === "detailed" && <><p className="mt-1 text-xs text-[#909895]">Previous: {item.previous}</p><p className="mt-1 text-xs leading-5 text-[#7A8581]">{item.exercise.cue}</p></>}</div><span className="text-[#AAB2AE]"><Icon name="chevron" size={17} /></span></article>)}</div>
+    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="This week" value={`${week.completedScheduled} of ${week.scheduledCount} planned`} /><MiniCard label="Normal schedule" value={daysLabel(week.preferredDays)} /></div>
     <button onClick={() => setTab("coach")} className="coach-inline mt-3"><Icon name="coach" size={18} /><span><strong>Need to change today?</strong><small>“No equipment” · “Only 20 minutes”</small></span><Icon name="chevron" size={16} /></button>
   </div>;
 }
@@ -735,7 +793,7 @@ function ProgressView({ state, review, targets, patch, setTab, openWeightLog, op
     <PageHeader eyebrow="PROGRESS" title="Trust the trend, not one dot." copy="We wait for enough data before suggesting a change." />
     <section className="dashboard-card"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">YOUR TREND</p><p className="mt-2 text-[30px] font-semibold tracking-[-.035em]">{review.trendNow === null ? "—" : displayWeight(review.trendNow, state.unitSystem)}</p><p className="mt-1 text-sm text-[#68736F]">{review.change === null ? "No trend yet" : `${displayWeightChange(review.change, state.unitSystem)} across the smoothed sample`}</p></div><button onClick={openWeightLog} className="soft-button"><Icon name="plus" size={14} /> Log weight</button></div><TrendChart points={trend} /><p className="mt-3 text-xs leading-5 text-[#7C8582]">Raw readings are light dots. The darker line is the smoothed trend we actually pay attention to.</p></section>
     <section className={cx("mt-3 rounded-[24px] p-4", review.ready ? "bg-[#ECF3EE]" : "bg-[#E7EFF5]")}><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="target" size={20} /></span><div className="flex-1"><p className="font-semibold">{review.ready ? "Trend review" : "Still learning your trend"}</p><p className="mt-1 text-sm leading-6 text-[#5D6965]">{review.message}</p>{review.suggestedCalorieChange !== 0 && <button onClick={applyReview} className="soft-button mt-3">Apply {review.suggestedCalorieChange > 0 ? "+" : ""}{review.suggestedCalorieChange} calories</button>}</div></div></section>
-    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.eatenMealIds.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><button onClick={openMonthlySummary} className="coach-inline mt-3"><Icon name="calendar" size={18} /><span><strong>Monthly summary</strong><small>See the useful signals without a score.</small></span><Icon name="chevron" size={16} /></button>
+    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.mealLogs.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><button onClick={openMonthlySummary} className="coach-inline mt-3"><Icon name="calendar" size={18} /><span><strong>Monthly summary</strong><small>See the useful signals without a score.</small></span><Icon name="chevron" size={16} /></button>
     <button onClick={() => setTab("coach")} className="coach-inline mt-3"><Icon name="coach" size={18} /><span><strong>Want to change the pace?</strong><small>Coach can explain the tradeoff before changing it.</small></span><Icon name="chevron" size={16} /></button>
   </div>;
 }
@@ -806,6 +864,7 @@ function ProfileSheet({ state, targets, patch, close, reset }: { state: AppState
     <div className="mt-5 rounded-[22px] border border-[#E6E0D6] bg-[#FCFAF6] p-4">
       <div className="mb-4"><p className="text-xs font-extrabold uppercase tracking-[.1em] text-[#7B8581]">TRAINING BASELINE</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">Update this whenever your lifting experience changes. The workout builder uses it to choose starting volume and progression style.</p></div>
       <TrainingBaselineFields state={state} patch={patch} />
+      <div className="mt-5 border-t border-[#E6E0D6] pt-5"><TrainingScheduleControls state={state} patch={patch} /></div>
     </div>
 
     <div className="mt-5">

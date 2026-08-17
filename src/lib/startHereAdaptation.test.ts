@@ -103,6 +103,22 @@ describe("adaptive planning", () => {
     expect(buildAdaptationReview(current, "2026-08-17").recommendations.some((item) => item.scope === "ongoing")).toBe(false);
   });
 
+  it("suggests moving the weekly schedule when actual training days form a strong different pattern", () => {
+    const actualDates = [
+      "2026-07-27", "2026-07-29", "2026-08-01",
+      "2026-08-03", "2026-08-05", "2026-08-08",
+      "2026-08-10", "2026-08-12", "2026-08-15",
+    ];
+    const current = state({
+      trainingDays: 3,
+      preferredDays: ["Mon", "Wed", "Fri"],
+      workoutLogs: actualDates.map((date, index) => ({ id: `d${index}`, date, workoutName: "Full Body A", minutes: 45, exercises: [], completed: true })),
+    });
+    const schedule = buildAdaptationReview(current, "2026-08-17").recommendations.find((item) => item.id === "schedule-observed-days");
+    expect(schedule?.patch.preferredDays).toEqual(["Mon", "Wed", "Sat"]);
+    expect(schedule?.confidence).toBe("strong");
+  });
+
   it("recognizes repeated top-of-range performance as a progression signal", () => {
     const current = state({
       workoutLogs: [

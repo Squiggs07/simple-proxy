@@ -1,5 +1,6 @@
 import { calculateTargets, smoothedWeightTrend, validateCalorieTarget } from "@/lib/startHereEngine";
 import type { AppState, ReadinessCheckIn, WorkoutSessionLog } from "@/lib/startHereModels";
+import { daysLabel, observedTrainingPattern } from "@/lib/startHereWeek";
 
 export interface AdaptationRecommendation {
   id: string;
@@ -163,7 +164,18 @@ export function buildAdaptationReview(state: AppState, today: string): Adaptatio
   }
 
   const coolingDown = recentOngoingAdaptation(state, today);
-  if (!coolingDown && lowReadinessRate !== null && lowReadinessRate >= 0.5 && workoutRate !== null && workoutRate < 0.8 && state.sessionMinutes > 20) {
+  const observedDays = observedTrainingPattern(state, today);
+  if (!coolingDown && observedDays) {
+    recommendations.push({
+      id: "schedule-observed-days",
+      kind: "schedule",
+      scope: "ongoing",
+      title: `Move training to ${daysLabel(observedDays.days)}`,
+      reason: `Across ${observedDays.sessions} recent sessions, those are the days you actually train most consistently. I would rather fit the plan to that pattern than keep marking a different weekday as missed.`,
+      confidence: observedDays.confidence,
+      patch: { preferredDays: observedDays.days },
+    });
+  } else if (!coolingDown && lowReadinessRate !== null && lowReadinessRate >= 0.5 && workoutRate !== null && workoutRate < 0.8 && state.sessionMinutes > 20) {
     const shorter = Math.max(20, state.sessionMinutes - 10);
     recommendations.push({
       id: "recovery-shorter-baseline",

@@ -2,6 +2,7 @@ import { calculateTargets, validateCalorieTarget, validateProteinTarget } from "
 import { buildDayMeals, currentTargets } from "@/lib/startHerePlan";
 import { answerGeneralCoachQuestion } from "@/lib/startHereCoachKnowledge";
 import type { AppState, Equipment } from "@/lib/startHereModels";
+import { defaultTrainingDays } from "@/lib/startHereWeek";
 
 export interface CoachActionResult {
   patch: Partial<AppState>;
@@ -177,6 +178,7 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
         experience: "new",
         confidence: "nervous",
         trainingDays: Math.min(state.trainingDays, 2),
+        preferredDays: defaultTrainingDays(Math.min(state.trainingDays, 2)),
         sessionMinutes: Math.min(state.sessionMinutes, 30),
       },
       reply: `I adjusted the starting training setup for a ${age}-year-old beginner: two manageable sessions, stable exercises, lower initial volume, and a little balance work. That is about building capability, not treating age like a limitation. Are you training at a gym, at home, or are you unsure yet?`,
@@ -190,7 +192,7 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
     const minutes = Number(permanentSchedule[2]);
     if (days) {
       return {
-        patch: { trainingDays: Math.max(1, Math.min(6, days)), sessionMinutes: Math.max(15, Math.min(90, minutes)), todayOverride: { minutes: null, equipment: null, note: null } },
+        patch: { trainingDays: Math.max(1, Math.min(6, days)), preferredDays: defaultTrainingDays(Math.max(1, Math.min(6, days))), sessionMinutes: Math.max(15, Math.min(90, minutes)), todayOverride: { minutes: null, equipment: null, note: null } },
         reply: `Done. Your ongoing program is now built around ${days} days per week and ${minutes}-minute sessions. I rebuilt the training rhythm instead of treating this as a one-day exception.`,
         changeSummary: `Ongoing training → ${days} days × ${minutes} min`,
       };
