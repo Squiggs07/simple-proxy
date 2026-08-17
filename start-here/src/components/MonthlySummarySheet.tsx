@@ -2,6 +2,7 @@
 
 import { smoothedWeightTrend } from "@/lib/startHereEngine";
 import type { AppState } from "@/lib/startHereModels";
+import { displayWeightChange } from "@/lib/startHereUnits";
 
 interface Props {
   state: AppState;
@@ -35,7 +36,7 @@ export function MonthlySummarySheet({ state, onClose }: Props) {
           <SummaryMetric label="Weight readings" value={`${readings}`} copy="Used only through the smoothed trend" />
           <SummaryMetric
             label="Trend movement"
-            value={trendChange === null ? "—" : `${trendChange > 0 ? "+" : ""}${trendChange.toFixed(1)} kg`}
+            value={trendChange === null ? "—" : displayWeightChange(trendChange, state.unitSystem)}
             copy="Direction, not a judgment"
           />
         </div>
