@@ -2,6 +2,10 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { ActiveWorkoutExperience } from "@/components/ActiveWorkoutExperience";
+import { MealPortionControl } from "@/components/MealPortionControl";
+import { MonthlySummarySheet } from "@/components/MonthlySummarySheet";
+import { TodayMealRow } from "@/components/TodayMealRow";
+import { WeightLogSheet } from "@/components/WeightLogSheet";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
@@ -26,6 +30,7 @@ import {
   type DietType,
   type Equipment,
   type Experience,
+  type MealPortion,
   type Variety,
 } from "@/lib/startHereModels";
 
@@ -108,6 +113,8 @@ export function StartHereAppV2() {
   const [swapMealId, setSwapMealId] = useState<string | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [showPrep, setShowPrep] = useState(false);
+  const [showWeightLog, setShowWeightLog] = useState(false);
+  const [showMonthlySummary, setShowMonthlySummary] = useState(false);
   const [activeWorkout, setActiveWorkout] = useState(false);
   const [exerciseSwaps, setExerciseSwaps] = useState<Record<string, string>>({});
   const [coachText, setCoachText] = useState("");
@@ -117,7 +124,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         if (saved) setState(mergeStoredState(JSON.parse(saved)));
       } catch {
         setState(INITIAL_STATE);
@@ -129,7 +136,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v3", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v4", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -150,8 +157,6 @@ export function StartHereAppV2() {
     };
   }, [baseWorkout, exerciseSwaps, state]);
   const progressReview = useMemo(() => reviewProgress(state), [state]);
-  const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
-  const swapSource = swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? null : null;
 
   function patch(update: Partial<AppState>) {
     setState((current) => ({ ...current, ...update }));
@@ -175,13 +180,13 @@ export function StartHereAppV2() {
     }, 900);
   }
 
-  function swapMeal(source: Meal, replacement: Meal) {
-    patch({ swappedMealIds: { ...state.swappedMealIds, [source.id]: replacement.id } });
+  function swapMeal(sourceMealId: string, replacement: Meal) {
+    patch({ swappedMealIds: { ...state.swappedMealIds, [sourceMealId]: replacement.id } });
     setSwapMealId(null);
   }
 
   function effectiveMeal(item: PlannedMeal) {
-    const replacementId = state.swappedMealIds[item.meal.id];
+    const replacementId = state.swappedMealIds[item.sourceMealId];
     const replacement = replacementId ? ALL_MEALS.find((meal) => meal.id === replacementId) : undefined;
     if (!replacement) return item;
     const macro = mealMacros(replacement);
@@ -190,9 +195,34 @@ export function StartHereAppV2() {
   }
 
   const dayMeals = plannedMeals.map(effectiveMeal);
+  const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
+  const selectedPlannedMeal = selectedMealId ? dayMeals.find((item) => item.meal.id === selectedMealId) ?? null : null;
+  const swapPlannedMeal = swapMealId ? dayMeals.find((item) => item.sourceMealId === swapMealId) ?? null : null;
+  const swapSource = swapPlannedMeal?.meal ?? (swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? null : null);
 
   function toggleMealEaten(id: string) {
     patch({ eatenMealIds: state.eatenMealIds.includes(id) ? state.eatenMealIds.filter((item) => item !== id) : [...state.eatenMealIds, id] });
+  }
+
+  function updateMealPortion(sourceMealId: string, portion: MealPortion) {
+    patch({ mealPortionOverrides: { ...state.mealPortionOverrides, [sourceMealId]: portion } });
+  }
+
+  function rejectMeal(mealId: string) {
+    const swappedMealIds = Object.fromEntries(Object.entries(state.swappedMealIds).filter(([sourceId, replacementId]) => sourceId !== mealId && replacementId !== mealId));
+    patch({
+      rejectedMealIds: state.rejectedMealIds.includes(mealId) ? state.rejectedMealIds : [...state.rejectedMealIds, mealId],
+      swappedMealIds,
+      eatenMealIds: state.eatenMealIds.filter((item) => item !== mealId),
+    });
+    setSelectedMealId(null);
+    setSwapMealId(null);
+  }
+
+  function saveWeight(kg: number) {
+    const date = todayKey();
+    patch({ weightKg: kg, weightLog: [...state.weightLog.filter((point) => point.date !== date), { date, weight: kg }] });
+    setShowWeightLog(false);
   }
 
   function startWorkout() {
@@ -280,13 +310,13 @@ export function StartHereAppV2() {
             <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
           )}
           {tab === "eat" && (
-            <EatView state={state} targets={targets} meals={dayMeals} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
+            <EatView state={state} targets={targets} meals={dayMeals} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
           )}
           {tab === "train" && (
             <TrainView state={state} workout={effectiveWorkout} startWorkout={startWorkout} setTab={setTab} />
           )}
           {tab === "progress" && (
-            <ProgressView state={state} review={progressReview} targets={targets} patch={patch} setTab={setTab} />
+            <ProgressView state={state} review={progressReview} targets={targets} patch={patch} setTab={setTab} openWeightLog={() => setShowWeightLog(true)} openMonthlySummary={() => setShowMonthlySummary(true)} />
           )}
           {tab === "coach" && (
             <CoachView state={state} targets={targets} coachText={coachText} setCoachText={setCoachText} submit={handleCoach} canUndo={Boolean(undoSnapshot)} undo={undoCoach} />
@@ -295,9 +325,11 @@ export function StartHereAppV2() {
         <BottomNav tab={tab} setTab={setTab} />
       </div>
 
-      {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
-      {swapSource && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapSource, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
+      {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showWeightLog && <WeightLogSheet currentKg={state.weightKg} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
+      {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
   );
 }
@@ -532,7 +564,7 @@ function TodayView({ state, targets, meals, workout, setTab, onStartWorkout, onM
 
     <section className="dashboard-card mt-3">
       <div className="flex items-center justify-between"><div><div className="card-kicker">FOOD TODAY</div><p className="mt-1 text-sm text-[#68736F]">{state.eatenMealIds.length} logged · {proteinLogged}g protein so far</p></div><button onClick={() => setTab("eat")} className="text-link">See all</button></div>
-      <div className="mt-4 space-y-2">{meals.slice(0, 3).map((item) => <button key={item.meal.id} onClick={() => onMeal(item.meal.id)} className="today-meal-row"><span className={cx("status-dot", state.eatenMealIds.includes(item.meal.id) && "status-done")}>{state.eatenMealIds.includes(item.meal.id) && <Icon name="check" size={12} />}</span><span className="min-w-0 flex-1 text-left"><strong>{item.meal.name}</strong><small>{item.protein}g protein · {item.meal.prepMinutes} min</small></span><button onClick={(event) => { event.stopPropagation(); onSwap(item.meal.id); }} className="row-action" aria-label="Swap"><Icon name="swap" size={16} /></button></button>)}</div>
+      <div className="mt-4 space-y-2">{meals.slice(0, 3).map((item) => <TodayMealRow key={item.sourceMealId} item={item} eaten={state.eatenMealIds.includes(item.meal.id)} onOpen={() => onMeal(item.meal.id)} onSwap={() => onSwap(item.sourceMealId)} />)}</div>
     </section>
 
     <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${state.workoutLogs.filter((log) => log.completed).length} sessions logged`} /></div>
@@ -543,7 +575,7 @@ function TodayView({ state, targets, meals, workout, setTab, onStartWorkout, onM
   </div>;
 }
 
-function EatView({ state, targets, meals, onMeal, onSwap, toggleEaten, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
+function EatView({ state, targets, meals, onMeal, onSwap, toggleEaten, updatePortion, rejectMeal, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; rejectMeal: (mealId: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
   const logged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id));
   const caloriesLogged = logged.reduce((sum, item) => sum + item.calories, 0);
   const proteinLogged = logged.reduce((sum, item) => sum + item.protein, 0);
@@ -552,7 +584,7 @@ function EatView({ state, targets, meals, onMeal, onSwap, toggleEaten, showPrep,
     <section className="nutrition-banner"><div><p className="card-kicker !text-white/55">TODAY</p><p className="mt-2 text-[27px] font-semibold tracking-[-.03em]">{state.hideCalories ? "Calories hidden" : `${caloriesLogged} / ${targets.calories.toLocaleString()}`}</p><p className="mt-1 text-xs text-white/55">{state.hideCalories ? "Focus on meals + protein" : "calories logged"}</p></div><div className="text-right"><p className="text-[27px] font-semibold">{proteinLogged}g</p><p className="mt-1 text-xs text-white/55">of {targets.proteinGrams}g protein</p></div></section>
 
     <div className="mt-5 flex items-center justify-between"><p className="section-label">YOUR DAY</p><button onClick={() => setShowPrep(!showPrep)} className="soft-button"><Icon name="grocery" size={15} /> Prep</button></div>
-    <div className="mt-3 space-y-3">{meals.map((item, index) => <article key={`${item.slot}-${item.meal.id}`} className="meal-card"><button onClick={() => onMeal(item.meal.id)} className={cx("meal-art", index % 4 === 0 ? "meal-butter" : index % 4 === 1 ? "meal-peach" : index % 4 === 2 ? "meal-blue" : "meal-sage")} aria-label={`Open ${item.meal.name}`}>{item.meal.type.charAt(0)}</button><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[#89918E]">{item.slot}</p><span className="portion-pill">{item.portion}</span></div><button onClick={() => onMeal(item.meal.id)} className="mt-1 block text-left font-semibold leading-5">{item.meal.name}</button><p className="mt-1 text-[13px] text-[#68736F]">{item.protein}g protein · {item.meal.prepMinutes} min{state.hideCalories ? "" : ` · ${item.calories} cal`}</p><p className="mt-2 text-xs leading-5 text-[#7D8682]">{item.meal.why}</p><div className="mt-3 flex gap-2"><button onClick={() => toggleEaten(item.meal.id)} className={cx("tiny-button", state.eatenMealIds.includes(item.meal.id) && "tiny-active")}><Icon name="check" size={13} />{state.eatenMealIds.includes(item.meal.id) ? "Logged" : "I ate this"}</button><button onClick={() => onSwap(item.meal.id)} className="tiny-button"><Icon name="swap" size={13} />Swap</button></div></div></article>)}</div>
+    <div className="mt-3 space-y-3">{meals.map((item, index) => <article key={`${item.slot}-${item.meal.id}`} className="meal-card"><button onClick={() => onMeal(item.meal.id)} className={cx("meal-art", index % 4 === 0 ? "meal-butter" : index % 4 === 1 ? "meal-peach" : index % 4 === 2 ? "meal-blue" : "meal-sage")} aria-label={`Open ${item.meal.name}`}>{item.meal.type.charAt(0)}</button><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[#89918E]">{item.slot}</p><span className="portion-pill">{item.portion}</span></div><button onClick={() => onMeal(item.meal.id)} className="mt-1 block text-left font-semibold leading-5">{item.meal.name}</button><p className="mt-1 text-[13px] text-[#68736F]">{item.protein}g protein · {item.meal.prepMinutes} min{state.hideCalories ? "" : ` · ${item.calories} cal`}</p><p className="mt-2 text-xs leading-5 text-[#7D8682]">{item.meal.why}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => toggleEaten(item.meal.id)} className={cx("tiny-button", state.eatenMealIds.includes(item.meal.id) && "tiny-active")}><Icon name="check" size={13} />{state.eatenMealIds.includes(item.meal.id) ? "Logged" : "I ate this"}</button><button onClick={() => onSwap(item.sourceMealId)} className="tiny-button"><Icon name="swap" size={13} />Swap</button><button onClick={() => rejectMeal(item.meal.id)} className="tiny-button">Not for me</button></div><div className="mt-3"><MealPortionControl value={item.portion} onChange={(portion) => updatePortion(item.sourceMealId, portion)} /></div></div></article>)}</div>
 
     {showPrep && <PrepCard meals={meals} />}
   </div>;
@@ -574,22 +606,18 @@ function TrainView({ state, workout, startWorkout, setTab }: { state: AppState; 
   </div>;
 }
 
-function ProgressView({ state, review, targets, patch, setTab }: { state: AppState; review: ReturnType<typeof reviewProgress>; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; setTab: (tab: AppTab) => void }) {
+function ProgressView({ state, review, targets, patch, setTab, openWeightLog, openMonthlySummary }: { state: AppState; review: ReturnType<typeof reviewProgress>; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; setTab: (tab: AppTab) => void; openWeightLog: () => void; openMonthlySummary: () => void }) {
   const trend = smoothedWeightTrend(state.weightLog, 7);
   const workouts = state.workoutLogs.filter((log) => log.completed).length;
-  function logWeight() {
-    const current = state.weightLog[state.weightLog.length - 1]?.weight ?? state.weightKg;
-    patch({ weightLog: [...state.weightLog, { date: todayKey(), weight: current }] });
-  }
   function applyReview() {
     if (!review.suggestedCalorieChange) return;
     patch({ calorieOverride: targets.calories + review.suggestedCalorieChange });
   }
   return <div>
     <PageHeader eyebrow="PROGRESS" title="Trust the trend, not one dot." copy="We wait for enough data before suggesting a change." />
-    <section className="dashboard-card"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">YOUR TREND</p><p className="mt-2 text-[30px] font-semibold tracking-[-.035em]">{review.trendNow?.toFixed(1) ?? "—"} kg</p><p className="mt-1 text-sm text-[#68736F]">{review.change === null ? "No trend yet" : `${review.change > 0 ? "+" : ""}${review.change.toFixed(1)} kg across the smoothed sample`}</p></div><button onClick={logWeight} className="soft-button"><Icon name="plus" size={14} /> Log weight</button></div><TrendChart points={trend} /><p className="mt-3 text-xs leading-5 text-[#7C8582]">Raw readings are light dots. The darker line is the smoothed trend we actually pay attention to.</p></section>
+    <section className="dashboard-card"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">YOUR TREND</p><p className="mt-2 text-[30px] font-semibold tracking-[-.035em]">{review.trendNow?.toFixed(1) ?? "—"} kg</p><p className="mt-1 text-sm text-[#68736F]">{review.change === null ? "No trend yet" : `${review.change > 0 ? "+" : ""}${review.change.toFixed(1)} kg across the smoothed sample`}</p></div><button onClick={openWeightLog} className="soft-button"><Icon name="plus" size={14} /> Log weight</button></div><TrendChart points={trend} /><p className="mt-3 text-xs leading-5 text-[#7C8582]">Raw readings are light dots. The darker line is the smoothed trend we actually pay attention to.</p></section>
     <section className={cx("mt-3 rounded-[24px] p-4", review.ready ? "bg-[#ECF3EE]" : "bg-[#E7EFF5]")}><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="target" size={20} /></span><div className="flex-1"><p className="font-semibold">{review.ready ? "Trend review" : "Still learning your trend"}</p><p className="mt-1 text-sm leading-6 text-[#5D6965]">{review.message}</p>{review.suggestedCalorieChange !== 0 && <button onClick={applyReview} className="soft-button mt-3">Apply {review.suggestedCalorieChange > 0 ? "+" : ""}{review.suggestedCalorieChange} calories</button>}</div></div></section>
-    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.eatenMealIds.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div>
+    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.eatenMealIds.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><button onClick={openMonthlySummary} className="coach-inline mt-3"><Icon name="calendar" size={18} /><span><strong>Monthly summary</strong><small>See the useful signals without a score.</small></span><Icon name="chevron" size={16} /></button>
     <button onClick={() => setTab("coach")} className="coach-inline mt-3"><Icon name="coach" size={18} /><span><strong>Want to change the pace?</strong><small>Coach can explain the tradeoff before changing it.</small></span><Icon name="chevron" size={16} /></button>
   </div>;
 }
