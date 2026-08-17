@@ -3,6 +3,7 @@ import type { Activity, Goal, SexEquation, WeightPoint } from "@/lib/startHereEn
 export type Equipment = "gym" | "dumbbells" | "home" | "mixed" | "unsure";
 export type Experience = "new" | "some" | "experienced";
 export type Confidence = "nervous" | "unsure" | "comfortable";
+export type LiftingHistory = "none" | "returning" | "consistent";
 export type DetailLevel = "simple" | "standard" | "detailed";
 export type Budget = "low" | "medium" | "flexible";
 export type Variety = "repeat" | "some" | "lots";
@@ -15,6 +16,14 @@ export interface TodayOverride {
   minutes: number | null;
   equipment: Equipment | null;
   note: string | null;
+}
+
+export interface LiftingBaseline {
+  benchKg: number | null;
+  squatKg: number | null;
+  deadliftKg: number | null;
+  pushups: number | null;
+  note: string;
 }
 
 export interface WorkoutSetLog {
@@ -60,8 +69,11 @@ export interface AppState {
   equipment: Equipment;
   experience: Experience;
   confidence: Confidence;
+  liftingHistory: LiftingHistory;
+  liftingBaseline: LiftingBaseline;
   preferredDays: string[];
   likedFoods: string[];
+  foodRequests: string[];
   cuisines: string[];
   mealFormats: string[];
   breakfastStyle: string;
@@ -69,6 +81,7 @@ export interface AppState {
   budget: Budget;
   variety: Variety;
   mealsPerDay: number;
+  mealRotation: number;
   dislikes: string[];
   neverFoods: string[];
   allergies: string[];
@@ -94,7 +107,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 5,
+  version: 6,
   onboarded: false,
   unitSystem: "imperial",
   goal: "unsure",
@@ -108,8 +121,17 @@ export const INITIAL_STATE: AppState = {
   equipment: "gym",
   experience: "new",
   confidence: "unsure",
+  liftingHistory: "none",
+  liftingBaseline: {
+    benchKg: null,
+    squatKg: null,
+    deadliftKg: null,
+    pushups: null,
+    note: "",
+  },
   preferredDays: ["Mon", "Wed", "Fri"],
   likedFoods: ["Chicken", "Pasta", "Eggs"],
+  foodRequests: [],
   cuisines: ["Italian", "American"],
   mealFormats: ["Bowls", "Plates"],
   breakfastStyle: "savory",
@@ -117,6 +139,7 @@ export const INITIAL_STATE: AppState = {
   budget: "medium",
   variety: "some",
   mealsPerDay: 3,
+  mealRotation: 0,
   dislikes: [],
   neverFoods: [],
   allergies: [],
@@ -149,7 +172,7 @@ export const INITIAL_STATE: AppState = {
     {
       id: "coach-welcome",
       role: "coach",
-      text: "Tell me what does not fit in normal words. I can change the actual plan, not just give you advice.",
+      text: "Ask me anything about training, food, recovery, sleep, or habits. I can also change the actual plan when you want me to.",
       createdAt: "2026-08-16T12:00:00.000Z",
     },
   ],
@@ -163,6 +186,9 @@ export function mergeStoredState(value: unknown): AppState {
     ...INITIAL_STATE,
     ...stored,
     todayOverride: { ...INITIAL_STATE.todayOverride, ...(stored.todayOverride ?? {}) },
+    liftingBaseline: { ...INITIAL_STATE.liftingBaseline, ...(stored.liftingBaseline ?? {}) },
+    foodRequests: Array.isArray(stored.foodRequests) ? stored.foodRequests : [],
+    mealRotation: typeof stored.mealRotation === "number" ? stored.mealRotation : 0,
     swappedMealIds: stored.swappedMealIds ?? {},
     mealPortionOverrides: stored.mealPortionOverrides ?? {},
     rejectedMealIds: Array.isArray(stored.rejectedMealIds) ? stored.rejectedMealIds : [],
@@ -171,6 +197,6 @@ export function mergeStoredState(value: unknown): AppState {
     coachHistory: Array.isArray(stored.coachHistory) && stored.coachHistory.length
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
-    version: 5,
+    version: 6,
   };
 }
