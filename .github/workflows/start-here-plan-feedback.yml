@@ -1,0 +1,75 @@
+name: Start Here Plan Feedback Integration
+
+on:
+  push:
+    branches:
+      - start-here/lovable-transfer
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: start-here/lovable-transfer
+
+      - name: Patch planner
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("start-here/src/lib/startHerePlan.ts")
+          text = path.read_text()
+
+          text = text.replace(
+              'import type { AppState, Equipment } from "@/lib/startHereModels";',
+              'import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";'
+          )
+          text = text.replace(
+              'export interface PlannedMeal {\n  slot: string;\n  meal: Meal;\n  calories: number;\n  protein: number;\n  portion: "smaller" | "standard" | "larger";\n}',
+              'export interface PlannedMeal {\n  slot: string;\n  sourceMealId: string;\n  meal: Meal;\n  calories: number;\n  protein: number;\n  portion: MealPortion;\n}'
+          )
+          text = text.replace(
+              'export function isMealAllowed(meal: Meal, state: AppState) {\n  if (mealContains(meal, [...state.allergies, ...state.neverFoods])) return false;',
+              'export function isMealAllowed(meal: Meal, state: AppState) {\n  if (state.rejectedMealIds.includes(meal.id)) return false;\n  if (mealContains(meal, [...state.allergies, ...state.neverFoods])) return false;'
+          )
+          text = text.replace(
+              '  const portion: PlannedMeal["portion"] = ratio < 0.93 ? "smaller" : ratio > 1.07 ? "larger" : "standard";\n\n  return selected.map((meal, index) => {\n    const macro = mealMacros(meal);\n    const factor = portion === "smaller" ? 0.88 : portion === "larger" ? 1.12 : 1;\n    return {\n      slot: index === 0 && meal.type !== "Breakfast" ? "Meal 1" : meal.type,\n      meal,\n      calories: Math.round(macro.calories * factor),\n      protein: Math.round(macro.protein * factor),\n      portion,\n    };\n  });',
+              '  const automaticPortion: MealPortion = ratio < 0.93 ? "smaller" : ratio > 1.07 ? "larger" : "standard";\n\n  return selected.map((meal, index) => {\n    const macro = mealMacros(meal);\n    const portion = state.mealPortionOverrides[meal.id] ?? automaticPortion;\n    const factor = portion === "smaller" ? 0.88 : portion === "larger" ? 1.12 : 1;\n    return {\n      slot: index === 0 && meal.type !== "Breakfast" ? "Meal 1" : meal.type,\n      sourceMealId: meal.id,\n      meal,\n      calories: Math.round(macro.calories * factor),\n      protein: Math.round(macro.protein * factor),\n      portion,\n    };\n  });'
+          )
+
+          marker = 'export function buildWorkout(state: AppState): WorkoutPlan {'
+          helper = "\n".join([
+              'function previousPerformance(state: AppState, exerciseId: string) {',
+              '  for (let sessionIndex = state.workoutLogs.length - 1; sessionIndex >= 0; sessionIndex -= 1) {',
+              '    const exerciseLog = state.workoutLogs[sessionIndex].exercises.find((item) => item.exerciseId === exerciseId);',
+              '    if (!exerciseLog) continue;',
+              '    for (let setIndex = exerciseLog.sets.length - 1; setIndex >= 0; setIndex -= 1) {',
+              '      const set = exerciseLog.sets[setIndex];',
+              '      if (!set.complete || (set.reps === null && set.weight === null)) continue;',
+              '      const load = set.weight === null ? "BW" : String(set.weight);',
+              '      const reps = set.reps === null ? "—" : String(set.reps);',
+              '      return `${load} × ${reps}`;',
+              '    }',
+              '  }',
+              '  return "No previous log";',
+              '}',
+              '',
+              marker
+          ])
+          text = text.replace(marker, helper, 1)
+          text = text.replace(
+              '      previous: index % 3 === 0 ? "90 lb × 9" : index % 3 === 1 ? "55 lb × 10" : "Bodyweight × 10",',
+              '      previous: previousPerformance(state, exercise.id),'
+          )
+          path.write_text(text)
+
+      - name: Commit planner changes
+        run: |
+          git config user.name "Start Here CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add start-here/src/lib/startHerePlan.ts
+          git commit -m "Add meal feedback and real previous performance"
+          git push origin HEAD:start-here/lovable-transfer
