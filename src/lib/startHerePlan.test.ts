@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_STATE } from "@/lib/startHereModels";
-import { buildDayMeals, buildWorkout, rankMeals } from "@/lib/startHerePlan";
+import { buildDayMeals, buildWorkout, mealFamilyKey, rankMeals } from "@/lib/startHerePlan";
 
 describe("Start Here planning", () => {
   it("mechanically removes allergy matches", () => {
@@ -13,6 +13,18 @@ describe("Start Here planning", () => {
     const state = { ...INITIAL_STATE, likedFoods: ["Pasta"], cuisines: ["Italian"] };
     const meals = rankMeals(state);
     expect(meals[0]?.meal.name.toLowerCase()).toContain("pasta");
+  });
+
+  it("gives explicit food requests stronger priority than broad defaults", () => {
+    const state = {
+      ...INITIAL_STATE,
+      likedFoods: ["Chicken"],
+      foodRequests: ["salmon"],
+      cuisines: [],
+      mealFormats: [],
+    };
+    const top = rankMeals(state).slice(0, 3).map((item) => item.meal.name.toLowerCase());
+    expect(top.some((name) => name.includes("salmon"))).toBe(true);
   });
 
   it("removes an exact meal after Not for me feedback without hard-excluding its ingredients", () => {
@@ -31,6 +43,19 @@ describe("Start Here planning", () => {
     const larger = buildDayMeals(largerState, 2200, 160).find((item) => item.sourceMealId === first.sourceMealId);
     expect(larger?.portion).toBe("larger");
     expect(larger?.calories ?? 0).toBeGreaterThan(first.portion === "larger" ? 0 : first.calories);
+  });
+
+  it("avoids duplicate meal families in a varied day when alternatives exist", () => {
+    const state = { ...INITIAL_STATE, mealsPerDay: 4, variety: "lots" as const };
+    const meals = buildDayMeals(state, 2400, 170);
+    const families = meals.map((item) => mealFamilyKey(item.meal));
+    expect(new Set(families).size).toBe(families.length);
+  });
+
+  it("rotates the generated day instead of trapping the user in the first options", () => {
+    const first = buildDayMeals({ ...INITIAL_STATE, mealRotation: 0 }, 2400, 170).map((item) => item.meal.id);
+    const second = buildDayMeals({ ...INITIAL_STATE, mealRotation: 1 }, 2400, 170).map((item) => item.meal.id);
+    expect(second).not.toEqual(first);
   });
 
   it("can build a full vegan starter day instead of dead-ending", () => {
@@ -55,8 +80,24 @@ describe("Start Here planning", () => {
     expect(workout.exercises.length).toBeLessThanOrEqual(3);
   });
 
+  it("uses lifting history to give experienced users a real training baseline", () => {
+    const newLifter = buildWorkout({ ...INITIAL_STATE, liftingHistory: "none" as const });
+    const experienced = buildWorkout({
+      ...INITIAL_STATE,
+      liftingHistory: "consistent" as const,
+      experience: "experienced" as const,
+      sessionMinutes: 60,
+      liftingBaseline: { ...INITIAL_STATE.liftingBaseline, benchKg: 90, squatKg: 130 },
+    });
+    const newVolume = newLifter.exercises.reduce((sum, item) => sum + item.sets, 0);
+    const experiencedVolume = experienced.exercises.reduce((sum, item) => sum + item.sets, 0);
+    expect(experiencedVolume).toBeGreaterThan(newVolume);
+    expect(experienced.note.toLowerCase()).toContain("baseline");
+    expect(experienced.exercises.some((item) => item.reps === "6–10 reps")).toBe(true);
+  });
+
   it("uses stable beginner-friendly exercise choices for an older nervous beginner", () => {
-    const state = { ...INITIAL_STATE, age: 68, experience: "new" as const, confidence: "nervous" as const };
+    const state = { ...INITIAL_STATE, age: 68, experience: "new" as const, liftingHistory: "none" as const, confidence: "nervous" as const };
     const workout = buildWorkout(state);
     expect(workout.exercises.length).toBeGreaterThan(0);
     expect(workout.exercises.every((item) => item.exercise.stable && item.exercise.beginnerFriendly)).toBe(true);
