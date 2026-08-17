@@ -10,6 +10,7 @@ import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngi
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { interpretCoachRequest } from "@/lib/startHereCoach";
+import { canonicalizeCoachRequest } from "@/lib/startHereCoachClient";
 import {
   alternativeExercises,
   buildDayMeals,
@@ -118,6 +119,7 @@ export function StartHereAppV2() {
   const [activeWorkout, setActiveWorkout] = useState(false);
   const [exerciseSwaps, setExerciseSwaps] = useState<Record<string, string>>({});
   const [coachText, setCoachText] = useState("");
+  const [coachBusy, setCoachBusy] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<AppState | null>(null);
   const [building, setBuilding] = useState(false);
 
@@ -243,21 +245,34 @@ export function StartHereAppV2() {
     setExerciseSwaps({});
   }
 
-  function handleCoach(event: FormEvent) {
+  async function handleCoach(event: FormEvent) {
     event.preventDefault();
     const raw = coachText.trim();
-    if (!raw) return;
-    const result = interpretCoachRequest(raw, state);
-    const changed = Object.keys(result.patch).length > 0;
-    if (changed) setUndoSnapshot(state);
+    if (!raw || coachBusy) return;
+
+    const snapshot = state;
     const now = new Date().toISOString();
-    const nextHistory = [
-      ...state.coachHistory,
-      { id: `user-${Date.now()}`, role: "user" as const, text: raw, createdAt: now },
-      { id: `coach-${Date.now() + 1}`, role: "coach" as const, text: result.reply, changeSummary: result.changeSummary, createdAt: now },
-    ];
-    setState((current) => ({ ...current, ...result.patch, coachHistory: nextHistory }));
+    const userMessage = { id: `user-${Date.now()}`, role: "user" as const, text: raw, createdAt: now };
     setCoachText("");
+    setCoachBusy(true);
+    setState((current) => ({ ...current, coachHistory: [...current.coachHistory, userMessage] }));
+
+    try {
+      const canonical = await canonicalizeCoachRequest(raw, snapshot, targets);
+      const result = interpretCoachRequest(canonical, snapshot);
+      const changed = Object.keys(result.patch).length > 0;
+      if (changed) setUndoSnapshot(snapshot);
+      const coachMessage = {
+        id: `coach-${Date.now() + 1}`,
+        role: "coach" as const,
+        text: result.reply,
+        changeSummary: result.changeSummary,
+        createdAt: new Date().toISOString(),
+      };
+      setState((current) => ({ ...current, ...result.patch, coachHistory: [...current.coachHistory, coachMessage] }));
+    } finally {
+      setCoachBusy(false);
+    }
   }
 
   function undoCoach() {
@@ -319,7 +334,7 @@ export function StartHereAppV2() {
             <ProgressView state={state} review={progressReview} targets={targets} patch={patch} setTab={setTab} openWeightLog={() => setShowWeightLog(true)} openMonthlySummary={() => setShowMonthlySummary(true)} />
           )}
           {tab === "coach" && (
-            <CoachView state={state} targets={targets} coachText={coachText} setCoachText={setCoachText} submit={handleCoach} canUndo={Boolean(undoSnapshot)} undo={undoCoach} />
+            <CoachView state={state} targets={targets} coachText={coachText} setCoachText={setCoachText} submit={handleCoach} busy={coachBusy} canUndo={Boolean(undoSnapshot)} undo={undoCoach} />
           )}
         </main>
         <BottomNav tab={tab} setTab={setTab} />
@@ -634,14 +649,14 @@ function TrendChart({ points }: { points: ReturnType<typeof smoothedWeightTrend>
   return <svg className="mt-5 h-32 w-full overflow-visible" viewBox="0 0 300 120" preserveAspectRatio="none"><line x1="0" y1="108" x2="300" y2="108" stroke="#E6E0D6" strokeWidth="1" />{points.map((point, index) => <circle key={`${point.date}-${index}`} cx={x(index)} cy={y(point.weight)} r="3.2" fill="#A7B8B0" opacity=".45" />)}<path d={path} fill="none" stroke="#17483F" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function CoachView({ state, targets, coachText, setCoachText, submit, canUndo, undo }: { state: AppState; targets: ReturnType<typeof currentTargets>; coachText: string; setCoachText: (value: string) => void; submit: (event: FormEvent) => void; canUndo: boolean; undo: () => void }) {
+function CoachView({ state, targets, coachText, setCoachText, submit, busy, canUndo, undo }: { state: AppState; targets: ReturnType<typeof currentTargets>; coachText: string; setCoachText: (value: string) => void; submit: (event: FormEvent) => void | Promise<void>; busy: boolean; canUndo: boolean; undo: () => void }) {
   const suggestions = ["I only have 20 minutes today", "I want to do a lean bulk", "Make my meals cheaper", state.hideCalories ? "Show calories" : "Hide calories"];
   return <div>
     <PageHeader eyebrow="COACH" title="Change the plan in normal words." copy="Coach uses your current plan and preferences, then applies validated changes to the app." action={canUndo ? <button onClick={undo} className="soft-button"><Icon name="undo" size={14} /> Undo</button> : undefined} />
     <div className="context-strip"><span><strong>{GOAL_LABELS[state.goal]}</strong><small>goal</small></span><span><strong>{targets.proteinGrams}g</strong><small>protein</small></span><span><strong>{state.trainingDays} × {state.sessionMinutes}</strong><small>training</small></span></div>
-    <div className="mt-5 space-y-3">{state.coachHistory.slice(-8).map((message) => <div key={message.id} className={cx("coach-message", message.role === "user" ? "coach-user" : "coach-assistant")}><div className="flex items-start gap-2.5">{message.role === "coach" && <span className="coach-mark"><Icon name="spark" size={14} /></span>}<div className="min-w-0 flex-1"><p>{message.text}</p>{message.changeSummary && <div className="change-summary"><Icon name="check" size={14} /><span>{message.changeSummary}</span></div>}</div></div></div>)}</div>
-    <div className="mt-4 flex flex-wrap gap-2">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => setCoachText(suggestion)} className="suggestion-chip">{suggestion}</button>)}</div>
-    <form onSubmit={submit} className="coach-composer"><textarea rows={3} value={coachText} onChange={(e) => setCoachText(e.target.value)} placeholder="Try: From now on I can train 3 days for 30 minutes..." /><div className="mt-2 flex items-center justify-between"><p className="text-[10px] leading-4 text-[#8B938F]">Changes use deterministic targets and guardrails.</p><button className="send-button" type="submit" aria-label="Send"><Icon name="arrow" size={18} /></button></div></form>
+    <div className="mt-5 space-y-3">{state.coachHistory.slice(-8).map((message) => <div key={message.id} className={cx("coach-message", message.role === "user" ? "coach-user" : "coach-assistant")}><div className="flex items-start gap-2.5">{message.role === "coach" && <span className="coach-mark"><Icon name="spark" size={14} /></span>}<div className="min-w-0 flex-1"><p>{message.text}</p>{message.changeSummary && <div className="change-summary"><Icon name="check" size={14} /><span>{message.changeSummary}</span></div>}</div></div></div>)}{busy && <div className="coach-message coach-assistant"><div className="flex items-center gap-2.5"><span className="coach-mark"><Icon name="spark" size={14} /></span><p className="text-[#68736F]">Understanding what you want to change…</p></div></div>}</div>
+    <div className="mt-4 flex flex-wrap gap-2">{suggestions.map((suggestion) => <button key={suggestion} disabled={busy} onClick={() => setCoachText(suggestion)} className="suggestion-chip disabled:opacity-45">{suggestion}</button>)}</div>
+    <form onSubmit={submit} className="coach-composer"><textarea disabled={busy} rows={3} value={coachText} onChange={(e) => setCoachText(e.target.value)} placeholder="Try: From now on I can train 3 days for 30 minutes..." /><div className="mt-2 flex items-center justify-between"><p className="text-[10px] leading-4 text-[#8B938F]">Natural language is normalized first; deterministic rules apply every change.</p><button disabled={busy || !coachText.trim()} className="send-button disabled:cursor-not-allowed disabled:opacity-40" type="submit" aria-label="Send"><Icon name="arrow" size={18} /></button></div></form>
   </div>;
 }
 
