@@ -11,6 +11,7 @@ export type DietType = "none" | "vegetarian" | "vegan";
 export type MealPortion = "smaller" | "standard" | "larger";
 export type UnitSystem = "imperial" | "metric";
 export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
+export type Readiness = "low" | "normal" | "high";
 
 export interface TodayOverride {
   minutes: number | null;
@@ -46,6 +47,16 @@ export interface WorkoutSessionLog {
   completed: boolean;
 }
 
+export interface MealLog {
+  date: string;
+  mealId: string;
+}
+
+export interface ReadinessCheckIn {
+  date: string;
+  readiness: Readiness;
+}
+
 export interface CoachMessage {
   id: string;
   role: "user" | "coach";
@@ -57,6 +68,7 @@ export interface CoachMessage {
 export interface AppState {
   version: number;
   onboarded: boolean;
+  currentDay: string;
   unitSystem: UnitSystem;
   goal: Goal;
   age: number;
@@ -97,6 +109,8 @@ export interface AppState {
   focusAreas: string[];
   todayOverride: TodayOverride;
   eatenMealIds: string[];
+  mealLogs: MealLog[];
+  readinessCheckIns: ReadinessCheckIn[];
   swappedMealIds: Record<string, string>;
   mealPortionOverrides: Record<string, MealPortion>;
   rejectedMealIds: string[];
@@ -107,8 +121,9 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 6,
+  version: 7,
   onboarded: false,
+  currentDay: "",
   unitSystem: "imperial",
   goal: "unsure",
   age: 25,
@@ -155,6 +170,8 @@ export const INITIAL_STATE: AppState = {
   focusAreas: [],
   todayOverride: { minutes: null, equipment: null, note: null },
   eatenMealIds: [],
+  mealLogs: [],
+  readinessCheckIns: [],
   swappedMealIds: {},
   mealPortionOverrides: {},
   rejectedMealIds: [],
@@ -189,6 +206,8 @@ export function mergeStoredState(value: unknown): AppState {
     liftingBaseline: { ...INITIAL_STATE.liftingBaseline, ...(stored.liftingBaseline ?? {}) },
     foodRequests: Array.isArray(stored.foodRequests) ? stored.foodRequests : [],
     mealRotation: typeof stored.mealRotation === "number" ? stored.mealRotation : 0,
+    mealLogs: Array.isArray(stored.mealLogs) ? stored.mealLogs : [],
+    readinessCheckIns: Array.isArray(stored.readinessCheckIns) ? stored.readinessCheckIns : [],
     swappedMealIds: stored.swappedMealIds ?? {},
     mealPortionOverrides: stored.mealPortionOverrides ?? {},
     rejectedMealIds: Array.isArray(stored.rejectedMealIds) ? stored.rejectedMealIds : [],
@@ -197,6 +216,7 @@ export function mergeStoredState(value: unknown): AppState {
     coachHistory: Array.isArray(stored.coachHistory) && stored.coachHistory.length
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
-    version: 6,
+    currentDay: typeof stored.currentDay === "string" ? stored.currentDay : "",
+    version: 7,
   };
 }
