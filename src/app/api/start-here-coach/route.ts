@@ -39,7 +39,7 @@ const requestSchema = z.object({
     healthFlags: z.array(z.string().max(120)).max(10),
     hideCalories: z.boolean(),
   }),
-  history: z.array(z.object({ role: z.enum(["user", "coach"]), text: z.string().max(1800) })).max(8).default([]),
+  history: z.array(z.object({ role: z.enum(["user", "coach"]), text: z.string().max(1800) })).max(6).default([]),
 });
 
 const responseSchema = z.object({
@@ -74,7 +74,7 @@ function requesterKey(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!rateLimit(`coach:${requesterKey(request)}`, 30, 10 * 60 * 1000)) {
+  if (!rateLimit(`coach:${requesterKey(request)}`, 12, 10 * 60 * 1000)) {
     return NextResponse.json({ available: false, reason: "rate_limited" }, { status: 429 });
   }
 
@@ -84,14 +84,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const model = process.env.START_HERE_COACH_MODEL || "openai/gpt-5.6-sol";
+    const model = process.env.START_HERE_COACH_MODEL || "google/gemini-3.1-flash-lite";
     const context = JSON.stringify(parsed.data.context);
     const history = parsed.data.history.map((item) => `${item.role === "user" ? "User" : "Coach"}: ${item.text}`).join("\n");
     const examples = canonicalExamples.map((item) => `- ${item}`).join("\n");
 
     const result = await generateText({
       model,
-      maxOutputTokens: 1100,
+      maxOutputTokens: 700,
       system: `You are Start Here Coach, the intelligence layer inside a consumer fitness, nutrition, recovery, and wellness app. You have two jobs at the same time:
 
 1) ANSWER QUESTIONS. Be a genuinely useful general fitness and wellness assistant. You can explain strength training, hypertrophy, cardio, exercise technique, programming, nutrition principles, protein, meal timing, recovery, sleep, soreness, habits, common supplements, body-composition concepts, and how to make a plan more realistic. Use the user's compact context when it is relevant. Be plainspoken, practical, and nuanced. Answer the question directly instead of forcing every conversation into a plan change.
@@ -101,6 +101,8 @@ export async function POST(request: Request) {
 Safety boundaries: do not diagnose conditions, interpret imaging/labs as a diagnosis, prescribe medication, or tell someone to push through concerning symptoms. For pain, injury, dizziness, chest pain, fainting, severe shortness of breath, eating-disorder concerns, pregnancy, or other medical situations, give high-level education and recommend appropriate professional care. If symptoms could be urgent, say so clearly. You may discuss common wellness topics and supplements in general terms, including evidence, tradeoffs, and common dosing ranges, while noting relevant medical cautions.
 
 For nutrition, never invent nutrition data for a food or meal that is not in the app's audited library. You can discuss general nutrition principles. When referring to the user's current calorie/protein numbers, use only the provided context.
+
+Keep normal answers concise. Prefer a direct answer plus the few most useful details instead of a long essay unless the user asks for depth.
 
 Return ONLY JSON with this shape:
 {"answer":"useful response to the user","canonicalCommand":null}
