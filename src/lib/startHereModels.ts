@@ -12,6 +12,8 @@ export type MealPortion = "smaller" | "standard" | "larger";
 export type UnitSystem = "imperial" | "metric";
 export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
 export type Readiness = "low" | "normal" | "high";
+export type RecoveryReason = "poor-sleep" | "sore" | "stressed" | "short-on-time" | "feeling-good";
+export type RecoverySource = "check-in" | "coach";
 export type AdaptationKind = "recovery" | "schedule" | "nutrition" | "behavior";
 export type WeekTrainingExceptionKind = "move" | "skip";
 
@@ -69,6 +71,8 @@ export interface ExerciseSwapLog {
 export interface ReadinessCheckIn {
   date: string;
   readiness: Readiness;
+  reasons?: RecoveryReason[];
+  source?: RecoverySource;
 }
 
 export interface AdaptationEvent {
@@ -156,7 +160,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 9,
+  version: 10,
   onboarded: false,
   currentDay: "",
   unitSystem: "imperial",
@@ -248,7 +252,13 @@ export function mergeStoredState(value: unknown): AppState {
     mealLogs: Array.isArray(stored.mealLogs) ? stored.mealLogs : [],
     mealSwapLogs: Array.isArray(stored.mealSwapLogs) ? stored.mealSwapLogs : [],
     exerciseSwapLogs: Array.isArray(stored.exerciseSwapLogs) ? stored.exerciseSwapLogs : [],
-    readinessCheckIns: Array.isArray(stored.readinessCheckIns) ? stored.readinessCheckIns : [],
+    readinessCheckIns: Array.isArray(stored.readinessCheckIns)
+      ? stored.readinessCheckIns.map((item) => ({
+          ...item,
+          reasons: Array.isArray(item.reasons) ? item.reasons : [],
+          source: item.source ?? "check-in",
+        }))
+      : [],
     adaptationEvents: Array.isArray(stored.adaptationEvents) ? stored.adaptationEvents : [],
     weekTrainingExceptions: Array.isArray(stored.weekTrainingExceptions) ? stored.weekTrainingExceptions : [],
     swappedMealIds: stored.swappedMealIds ?? {},
@@ -260,6 +270,6 @@ export function mergeStoredState(value: unknown): AppState {
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
     currentDay: typeof stored.currentDay === "string" ? stored.currentDay : "",
-    version: 9,
+    version: 10,
   };
 }
