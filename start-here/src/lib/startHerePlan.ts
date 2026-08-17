@@ -1,7 +1,7 @@
 import { calculateTargets, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { EXERCISES, mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
-import type { AppState, Equipment } from "@/lib/startHereModels";
+import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
 
 export interface RankedMeal {
   meal: Meal;
@@ -11,10 +11,11 @@ export interface RankedMeal {
 
 export interface PlannedMeal {
   slot: string;
+  sourceMealId: string;
   meal: Meal;
   calories: number;
   protein: number;
-  portion: "smaller" | "standard" | "larger";
+  portion: MealPortion;
 }
 
 export interface WorkoutExercise {
@@ -51,6 +52,7 @@ function mealContains(meal: Meal, terms: string[]) {
 }
 
 export function isMealAllowed(meal: Meal, state: AppState) {
+  if (state.rejectedMealIds.includes(meal.id)) return false;
   if (mealContains(meal, [...state.allergies, ...state.neverFoods])) return false;
   if (state.dietType === "vegan") {
     const blocked = ["chicken", "turkey", "steak", "beef", "salmon", "fish", "egg", "greek yogurt", "cottage cheese", "skim milk", "cheddar", "parmesan", "whey"];
@@ -130,13 +132,15 @@ export function buildDayMeals(state: AppState, calorieTarget: number, proteinTar
   const calorieRatio = baseCalories ? calorieTarget / baseCalories : 1;
   const proteinRatio = baseProtein ? proteinTarget / baseProtein : 1;
   const ratio = Math.max(0.82, Math.min(1.18, Math.max(calorieRatio, proteinRatio * 0.9)));
-  const portion: PlannedMeal["portion"] = ratio < 0.93 ? "smaller" : ratio > 1.07 ? "larger" : "standard";
+  const automaticPortion: MealPortion = ratio < 0.93 ? "smaller" : ratio > 1.07 ? "larger" : "standard";
 
   return selected.map((meal, index) => {
     const macro = mealMacros(meal);
+    const portion = state.mealPortionOverrides[meal.id] ?? automaticPortion;
     const factor = portion === "smaller" ? 0.88 : portion === "larger" ? 1.12 : 1;
     return {
       slot: index === 0 && meal.type !== "Breakfast" ? "Meal 1" : meal.type,
+      sourceMealId: meal.id,
       meal,
       calories: Math.round(macro.calories * factor),
       protein: Math.round(macro.protein * factor),
@@ -153,6 +157,21 @@ function equipmentMatches(exercise: Exercise, equipment: Equipment) {
 function exerciseBlocked(exercise: Exercise, state: AppState) {
   const text = `${exercise.name} ${exercise.id}`.toLowerCase();
   return state.dislikedExercises.some((term) => text.includes(term.toLowerCase()));
+}
+
+function previousPerformance(state: AppState, exerciseId: string) {
+  for (let sessionIndex = state.workoutLogs.length - 1; sessionIndex >= 0; sessionIndex -= 1) {
+    const exerciseLog = state.workoutLogs[sessionIndex].exercises.find((item) => item.exerciseId === exerciseId);
+    if (!exerciseLog) continue;
+    for (let setIndex = exerciseLog.sets.length - 1; setIndex >= 0; setIndex -= 1) {
+      const set = exerciseLog.sets[setIndex];
+      if (!set.complete || (set.reps === null && set.weight === null)) continue;
+      const load = set.weight === null ? "BW" : String(set.weight);
+      const reps = set.reps === null ? "—" : String(set.reps);
+      return `${load} × ${reps}`;
+    }
+  }
+  return "No previous log";
 }
 
 export function buildWorkout(state: AppState): WorkoutPlan {
@@ -197,7 +216,7 @@ export function buildWorkout(state: AppState): WorkoutPlan {
       exercise,
       sets: index >= 4 ? 2 : sets + (index < 3 && minutes >= 45 ? 1 : 0),
       reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : "8–12 reps",
-      previous: index % 3 === 0 ? "90 lb × 9" : index % 3 === 1 ? "55 lb × 10" : "Bodyweight × 10",
+      previous: previousPerformance(state, exercise.id),
     })),
     note: olderBeginner
       ? "Stable movements, lower starting volume, and a little balance work. The goal is confidence and capability."
