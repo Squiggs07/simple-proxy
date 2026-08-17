@@ -1,0 +1,42 @@
+name: Validate adaptive recovery signals
+
+on:
+  push:
+    branches: [adaptive-v6-recovery-signals]
+    paths:
+      - .github/workflows/adaptive-v6-run.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: adaptive-v6-recovery-signals
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Integrate recovery signals
+        run: python .github/scripts/v6_integrate_recovery.py
+      - name: Install
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Lint changed product code
+        run: npx eslint src/components/StartHereAppV2.tsx src/lib/startHereModels.ts src/lib/startHereRecovery.ts src/lib/startHereAdaptation.ts src/lib/startHereCoachClient.ts src/app/api/start-here-coach/route.ts
+      - name: Test
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Commit validated product changes
+        run: |
+          git config user.name "Squiggs07"
+          git config user.email "160694990+Squiggs07@users.noreply.github.com"
+          git add src/components/StartHereAppV2.tsx src/lib/startHereAdaptation.ts src/lib/startHereAdaptation.test.ts
+          git commit -m "Integrate recovery-aware adaptation"
+          git push origin HEAD:adaptive-v6-recovery-signals
