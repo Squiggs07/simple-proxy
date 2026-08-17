@@ -6,8 +6,19 @@ import { prisma } from "@/lib/db";
 import { serializeExclusions } from "@/lib/exclusions";
 import { computeMacroTargets } from "@/lib/macros";
 
+const shortString = z.string().trim().min(1).max(80);
+const stringList = z.array(shortString).max(30).default([]);
+
 const onboardingSchema = z.object({
-  goal: z.enum(["lose_fat", "build_muscle", "recomp", "healthy_habits"]),
+  goal: z.enum([
+    "lose_fat",
+    "build_muscle",
+    "recomp",
+    "healthy_habits",
+    "feel_stronger",
+    "maintain",
+    "unsure",
+  ]),
   sexAtBirth: z.enum(["male", "female"]),
   age: z.number().int().min(13).max(100),
   heightCm: z.number().min(120).max(230),
@@ -18,12 +29,46 @@ const onboardingSchema = z.object({
     "on_feet_lots",
     "hard_physical",
   ]),
-  exclusions: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
+  exclusions: stringList,
   mealPriority: z
     .enum(["precision", "simple", "variety", "balanced"])
     .default("balanced"),
   units: z.enum(["metric", "imperial"]).default("imperial"),
+
+  trainingDays: z.number().int().min(1).max(6).default(3),
+  sessionMinutes: z.number().int().min(15).max(120).default(45),
+  equipment: z
+    .enum(["gym", "dumbbells", "home", "mixed", "unsure"])
+    .default("gym"),
+  experienceLevel: z
+    .enum(["beginner", "returning", "comfortable", "experienced"])
+    .default("beginner"),
+  confidenceLevel: z
+    .enum(["nervous", "unsure", "okay", "confident"])
+    .default("unsure"),
+
+  likedFoods: stringList,
+  preferredCuisines: stringList,
+  mealFormats: stringList,
+  dislikes: stringList,
+  neverFoods: stringList,
+  allergies: stringList,
+  dietType: z.enum(["none", "vegetarian", "vegan"]).default("none"),
+  breakfastStyle: z
+    .enum(["savory", "sweet", "either", "skip"])
+    .default("either"),
+  cookingMinutes: z.number().int().min(0).max(120).default(20),
+  budgetLevel: z.enum(["lower", "moderate", "flexible"]).default("moderate"),
+  varietyPreference: z
+    .enum(["repeat", "some", "variety"])
+    .default("some"),
+  mealsPerDay: z.number().int().min(2).max(6).default(4),
+  healthFlags: stringList,
 });
+
+function json(values: string[]) {
+  return JSON.stringify(values);
+}
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -40,15 +85,68 @@ export async function POST(request: Request) {
     );
   }
 
-  const { exclusions, mealPriority, units, ...macroInputs } = parsed.data;
-  const targets = computeMacroTargets(macroInputs);
-
-  const userId = session.user.id;
-  const profileData = {
-    ...macroInputs,
-    exclusions: serializeExclusions(exclusions),
+  const {
+    exclusions,
     mealPriority,
     units,
+    trainingDays,
+    sessionMinutes,
+    equipment,
+    experienceLevel,
+    confidenceLevel,
+    likedFoods,
+    preferredCuisines,
+    mealFormats,
+    dislikes,
+    neverFoods,
+    allergies,
+    dietType,
+    breakfastStyle,
+    cookingMinutes,
+    budgetLevel,
+    varietyPreference,
+    mealsPerDay,
+    healthFlags,
+    ...macroInputs
+  } = parsed.data;
+
+  const targets = computeMacroTargets(macroInputs);
+  const userId = session.user.id;
+
+  // Keep the current verified meal engine compatible: dietary identity,
+  // allergies and never-use foods become mechanical exclusions. Ordinary
+  // dislikes do not — they are ranking signals, not safety rules.
+  const hardExclusions = [
+    ...exclusions,
+    ...neverFoods,
+    ...allergies,
+    ...(dietType === "vegetarian" ? ["Vegetarian"] : []),
+    ...(dietType === "vegan" ? ["Vegan"] : []),
+  ];
+
+  const profileData = {
+    ...macroInputs,
+    exclusions: serializeExclusions([...new Set(hardExclusions)]),
+    mealPriority,
+    units,
+    trainingDays,
+    sessionMinutes,
+    equipment,
+    experienceLevel,
+    confidenceLevel,
+    likedFoods: json(likedFoods),
+    preferredCuisines: json(preferredCuisines),
+    mealFormats: json(mealFormats),
+    dislikes: json(dislikes),
+    neverFoods: json(neverFoods),
+    allergies: json(allergies),
+    dietType,
+    breakfastStyle,
+    cookingMinutes,
+    budgetLevel,
+    varietyPreference,
+    mealsPerDay,
+    healthFlags: json(healthFlags),
   };
 
   await prisma.$transaction([
@@ -72,5 +170,8 @@ export async function POST(request: Request) {
     }),
   ]);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    targets,
+  });
 }
