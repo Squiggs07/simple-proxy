@@ -3,6 +3,8 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { ActiveWorkoutExperience } from "@/components/ActiveWorkoutExperience";
 import { BasicProfileFields, validBasicProfile } from "@/components/BasicProfileFields";
+import { FoodPreferenceEditor } from "@/components/FoodPreferenceEditor";
+import { TrainingBaselineFields } from "@/components/TrainingBaselineFields";
 import { MealPortionControl } from "@/components/MealPortionControl";
 import { MonthlySummarySheet } from "@/components/MonthlySummarySheet";
 import { TodayMealRow } from "@/components/TodayMealRow";
@@ -12,12 +14,13 @@ import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { interpretCoachRequest } from "@/lib/startHereCoach";
-import { canonicalizeCoachRequest } from "@/lib/startHereCoachClient";
+import { askCoach } from "@/lib/startHereCoachClient";
 import {
   alternativeExercises,
   buildDayMeals,
   buildWorkout,
   currentTargets,
+  mealFamilyKey,
   rankMeals,
   reviewProgress,
   type PlannedMeal,
@@ -32,7 +35,6 @@ import {
   type Confidence,
   type DietType,
   type Equipment,
-  type Experience,
   type MealPortion,
   type Variety,
 } from "@/lib/startHereModels";
@@ -128,7 +130,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         if (saved) setState(mergeStoredState(JSON.parse(saved)));
       } catch {
         setState(INITIAL_STATE);
@@ -140,7 +142,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v5", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v6", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -260,18 +262,39 @@ export function StartHereAppV2() {
     setState((current) => ({ ...current, coachHistory: [...current.coachHistory, userMessage] }));
 
     try {
-      const canonical = await canonicalizeCoachRequest(raw, snapshot, targets);
-      const result = interpretCoachRequest(canonical, snapshot);
+      const ai = await askCoach(raw, snapshot, targets);
+      const command = ai.canonicalCommand?.trim() || raw;
+      const result = interpretCoachRequest(command, snapshot);
       const changed = Object.keys(result.patch).length > 0;
       if (changed) setUndoSnapshot(snapshot);
+
+      let reply = result.reply;
+      if (ai.available && ai.answer) {
+        if (changed) reply = `${ai.answer}\n\n${result.reply}`;
+        else if (result.clarification === "safety") reply = `${ai.answer}\n\n${result.reply}`;
+        else reply = ai.answer;
+      }
+
       const coachMessage = {
         id: `coach-${Date.now() + 1}`,
         role: "coach" as const,
-        text: result.reply,
+        text: reply,
         changeSummary: result.changeSummary,
         createdAt: new Date().toISOString(),
       };
       setState((current) => ({ ...current, ...result.patch, coachHistory: [...current.coachHistory, coachMessage] }));
+    } catch {
+      const fallback = interpretCoachRequest(raw, snapshot);
+      const changed = Object.keys(fallback.patch).length > 0;
+      if (changed) setUndoSnapshot(snapshot);
+      const coachMessage = {
+        id: `coach-${Date.now() + 1}`,
+        role: "coach" as const,
+        text: fallback.reply,
+        changeSummary: fallback.changeSummary,
+        createdAt: new Date().toISOString(),
+      };
+      setState((current) => ({ ...current, ...fallback.patch, coachHistory: [...current.coachHistory, coachMessage] }));
     } finally {
       setCoachBusy(false);
     }
@@ -327,7 +350,7 @@ export function StartHereAppV2() {
             <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
           )}
           {tab === "eat" && (
-            <EatView state={state} targets={targets} meals={dayMeals} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
+            <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
           )}
           {tab === "train" && (
             <TrainView state={state} workout={effectiveWorkout} startWorkout={startWorkout} setTab={setTab} />
@@ -343,8 +366,8 @@ export function StartHereAppV2() {
       </div>
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
-      {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
@@ -439,10 +462,8 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
               <ChoiceGroup label="Days per week" hint="2–3 is a strong beginner starting point."><div className="chip-row">{[1,2,3,4,5,6].map((n) => <button key={n} onClick={() => patch({ trainingDays: n })} className={cx("number-chip", state.trainingDays === n && "chip-active")}>{n}</button>)}</div></ChoiceGroup>
               <ChoiceGroup label="Time per session"><div className="chip-row wrap">{[15,20,30,45,60,75,90].map((n) => <button key={n} onClick={() => patch({ sessionMinutes: n })} className={cx("text-chip", state.sessionMinutes === n && "chip-active")}>{n} min</button>)}</div></ChoiceGroup>
               <ChoiceGroup label="Where / equipment"><div className="chip-row wrap">{(["gym","dumbbells","home","mixed","unsure"] as Equipment[]).map((item) => <button key={item} onClick={() => patch({ equipment: item })} className={cx("text-chip capitalize", state.equipment === item && "chip-active")}>{item}</button>)}</div></ChoiceGroup>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Experience"><select value={state.experience} onChange={(e) => patch({ experience: e.target.value as Experience })}><option value="new">New</option><option value="some">Some experience</option><option value="experienced">Experienced</option></select></Field>
-                <Field label="Confidence"><select value={state.confidence} onChange={(e) => patch({ confidence: e.target.value as Confidence })}><option value="nervous">Nervous</option><option value="unsure">Unsure</option><option value="comfortable">Comfortable</option></select></Field>
-              </div>
+              <TrainingBaselineFields state={state} patch={patch} />
+              <Field label="How confident do you feel starting?"><select value={state.confidence} onChange={(e) => patch({ confidence: e.target.value as Confidence })}><option value="nervous">Nervous — keep it very simple</option><option value="unsure">Unsure</option><option value="comfortable">Comfortable</option></select></Field>
             </div>
           </OnboardingSection>
         )}
@@ -450,7 +471,8 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
         {step === 5 && (
           <OnboardingSection title="What would you actually look forward to eating?" copy="Pick foods that sound good. These are positive preferences, not rules." footer={<Continue onClick={() => setStep(6)} />}>
             <div className="mt-5 flex flex-wrap gap-2.5">{foodChoices.map((food) => <button key={food} onClick={() => toggleArray("likedFoods", food)} className={cx("food-chip", state.likedFoods.includes(food) && "food-chip-active")}>{state.likedFoods.includes(food) && <Icon name="check" size={14} />}{food}</button>)}</div>
-            <InfoCard className="mt-5"><strong>Meals start here.</strong><br />We rank food you want first, then make the portions work — not the other way around.</InfoCard>
+            <div className="mt-4"><FoodPreferenceEditor state={state} patch={patch} /></div>
+            <InfoCard className="mt-4"><strong>Meals start here.</strong><br />We rank what you specifically ask for first, then your broader likes, then make the portions work.</InfoCard>
           </OnboardingSection>
         )}
 
@@ -582,13 +604,19 @@ function TodayView({ state, targets, meals, workout, setTab, onStartWorkout, onM
   </div>;
 }
 
-function EatView({ state, targets, meals, onMeal, onSwap, toggleEaten, updatePortion, rejectMeal, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; rejectMeal: (mealId: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
+function EatView({ state, targets, meals, patch, onMeal, onSwap, toggleEaten, updatePortion, rejectMeal, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; patch: (update: Partial<AppState>) => void; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; rejectMeal: (mealId: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
   const logged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id));
   const caloriesLogged = logged.reduce((sum, item) => sum + item.calories, 0);
   const proteinLogged = logged.reduce((sum, item) => sum + item.protein, 0);
+  const refreshMeals = () => patch({ mealRotation: state.mealRotation + 1, swappedMealIds: {} });
   return <div>
-    <PageHeader eyebrow="EAT" title="Food you’d actually choose." copy="Your preferences come first. Targets shape the portions, not your entire personality." />
+    <PageHeader eyebrow="EAT" title="Food you’d actually choose." copy="Ask for specific foods, rotate the day, or swap one meal. Your targets shape portions — they do not lock you into a menu." />
     <section className="nutrition-banner"><div><p className="card-kicker !text-white/55">TODAY</p><p className="mt-2 text-[27px] font-semibold tracking-[-.03em]">{state.hideCalories ? "Calories hidden" : `${caloriesLogged} / ${targets.calories.toLocaleString()}`}</p><p className="mt-1 text-xs text-white/55">{state.hideCalories ? "Focus on meals + protein" : "calories logged"}</p></div><div className="text-right"><p className="text-[27px] font-semibold">{proteinLogged}g</p><p className="mt-1 text-xs text-white/55">of {targets.proteinGrams}g protein</p></div></section>
+
+    <section className="dashboard-card mt-3">
+      <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">Make the food feel more like you.</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">You are not stuck with the first generated day.</p></div><button onClick={refreshMeals} className="soft-button"><Icon name="swap" size={14} /> Different meals</button></div>
+      <div className="mt-3"><FoodPreferenceEditor state={state} patch={patch} compact /></div>
+    </section>
 
     <div className="mt-5 flex items-center justify-between"><p className="section-label">YOUR DAY</p><button onClick={() => setShowPrep(!showPrep)} className="soft-button"><Icon name="grocery" size={15} /> Prep</button></div>
     <div className="mt-3 space-y-3">{meals.map((item, index) => <article key={`${item.slot}-${item.meal.id}`} className="meal-card"><button onClick={() => onMeal(item.meal.id)} className={cx("meal-art", index % 4 === 0 ? "meal-butter" : index % 4 === 1 ? "meal-peach" : index % 4 === 2 ? "meal-blue" : "meal-sage")} aria-label={`Open ${item.meal.name}`}>{item.meal.type.charAt(0)}</button><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[#89918E]">{item.slot}</p><span className="portion-pill">{item.portion}</span></div><button onClick={() => onMeal(item.meal.id)} className="mt-1 block text-left font-semibold leading-5">{item.meal.name}</button><p className="mt-1 text-[13px] text-[#68736F]">{item.protein}g protein · {item.meal.prepMinutes} min{state.hideCalories ? "" : ` · ${item.calories} cal`}</p><p className="mt-2 text-xs leading-5 text-[#7D8682]">{item.meal.why}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => toggleEaten(item.meal.id)} className={cx("tiny-button", state.eatenMealIds.includes(item.meal.id) && "tiny-active")}><Icon name="check" size={13} />{state.eatenMealIds.includes(item.meal.id) ? "Logged" : "I ate this"}</button><button onClick={() => onSwap(item.sourceMealId)} className="tiny-button"><Icon name="swap" size={13} />Swap</button><button onClick={() => rejectMeal(item.meal.id)} className="tiny-button">Not for me</button></div><div className="mt-3"><MealPortionControl value={item.portion} onChange={(portion) => updatePortion(item.sourceMealId, portion)} /></div></div></article>)}</div>
@@ -642,13 +670,13 @@ function TrendChart({ points }: { points: ReturnType<typeof smoothedWeightTrend>
 }
 
 function CoachView({ state, targets, coachText, setCoachText, submit, busy, canUndo, undo }: { state: AppState; targets: ReturnType<typeof currentTargets>; coachText: string; setCoachText: (value: string) => void; submit: (event: FormEvent) => void | Promise<void>; busy: boolean; canUndo: boolean; undo: () => void }) {
-  const suggestions = ["I only have 20 minutes today", "I want to do a lean bulk", "Make my meals cheaper", state.hideCalories ? "Show calories" : "Hide calories"];
+  const suggestions = ["What should I eat before lifting?", "How many reps should I leave in reserve?", "I only have 20 minutes today", "Give me different meals"];
   return <div>
-    <PageHeader eyebrow="COACH" title="Change the plan in normal words." copy="Coach uses your current plan and preferences, then applies validated changes to the app." action={canUndo ? <button onClick={undo} className="soft-button"><Icon name="undo" size={14} /> Undo</button> : undefined} />
+    <PageHeader eyebrow="COACH" title="Ask anything. Change what you need." copy="Training, food, recovery, sleep, habits, common supplements — or tell Coach to change the actual plan." action={canUndo ? <button onClick={undo} className="soft-button"><Icon name="undo" size={14} /> Undo</button> : undefined} />
     <div className="context-strip"><span><strong>{GOAL_LABELS[state.goal]}</strong><small>goal</small></span><span><strong>{targets.proteinGrams}g</strong><small>protein</small></span><span><strong>{state.trainingDays} × {state.sessionMinutes}</strong><small>training</small></span></div>
-    <div className="mt-5 space-y-3">{state.coachHistory.slice(-8).map((message) => <div key={message.id} className={cx("coach-message", message.role === "user" ? "coach-user" : "coach-assistant")}><div className="flex items-start gap-2.5">{message.role === "coach" && <span className="coach-mark"><Icon name="spark" size={14} /></span>}<div className="min-w-0 flex-1"><p>{message.text}</p>{message.changeSummary && <div className="change-summary"><Icon name="check" size={14} /><span>{message.changeSummary}</span></div>}</div></div></div>)}{busy && <div className="coach-message coach-assistant"><div className="flex items-center gap-2.5"><span className="coach-mark"><Icon name="spark" size={14} /></span><p className="text-[#68736F]">Understanding what you want to change…</p></div></div>}</div>
+    <div className="mt-5 space-y-3">{state.coachHistory.slice(-10).map((message) => <div key={message.id} className={cx("coach-message", message.role === "user" ? "coach-user" : "coach-assistant")}><div className="flex items-start gap-2.5">{message.role === "coach" && <span className="coach-mark"><Icon name="spark" size={14} /></span>}<div className="min-w-0 flex-1"><p className="whitespace-pre-line">{message.text}</p>{message.changeSummary && <div className="change-summary"><Icon name="check" size={14} /><span>{message.changeSummary}</span></div>}</div></div></div>)}{busy && <div className="coach-message coach-assistant"><div className="flex items-center gap-2.5"><span className="coach-mark"><Icon name="spark" size={14} /></span><p className="text-[#68736F]">Thinking through your question and your current plan…</p></div></div>}</div>
     <div className="mt-4 flex flex-wrap gap-2">{suggestions.map((suggestion) => <button key={suggestion} disabled={busy} onClick={() => setCoachText(suggestion)} className="suggestion-chip disabled:opacity-45">{suggestion}</button>)}</div>
-    <form onSubmit={submit} className="coach-composer"><textarea disabled={busy} rows={3} value={coachText} onChange={(e) => setCoachText(e.target.value)} placeholder="Try: From now on I can train 3 days for 30 minutes..." /><div className="mt-2 flex items-center justify-between"><p className="text-[10px] leading-4 text-[#8B938F]">Natural language is normalized first; deterministic rules apply every change.</p><button disabled={busy || !coachText.trim()} className="send-button disabled:cursor-not-allowed disabled:opacity-40" type="submit" aria-label="Send"><Icon name="arrow" size={18} /></button></div></form>
+    <form onSubmit={submit} className="coach-composer"><textarea disabled={busy} rows={4} value={coachText} onChange={(e) => setCoachText(e.target.value)} placeholder="Ask a fitness or wellness question, or tell me what you want changed..." /><div className="mt-2 flex items-center justify-between gap-3"><p className="text-[10px] leading-4 text-[#8B938F]">Coach can answer broadly. Any plan change still passes through deterministic nutrition and safety guardrails.</p><button disabled={busy || !coachText.trim()} className="send-button shrink-0 disabled:cursor-not-allowed disabled:opacity-40" type="submit" aria-label="Send"><Icon name="arrow" size={18} /></button></div></form>
   </div>;
 }
 
@@ -658,9 +686,28 @@ function MealDetail({ meal, state, close, swap, toggleEaten }: { meal: Meal; sta
   return <BottomSheet close={close} title={meal.name}><div className="flex flex-wrap gap-2"><span className="detail-pill">{meal.type}</span><span className="detail-pill"><Icon name="clock" size={13} /> {meal.prepMinutes} min</span><span className="detail-pill">{macros.protein}g protein</span>{!state.hideCalories && <span className="detail-pill">{macros.calories} cal</span>}</div><p className="mt-4 text-sm leading-6 text-[#68736F]">{meal.why}</p><p className="section-label mt-5">INGREDIENTS</p><div className="mt-2 divide-y divide-[#EEE9E1]">{meal.ingredients.map((ingredient) => <div key={ingredient.name} className="flex items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{ingredient.name}</p><p className="mt-0.5 text-xs text-[#7D8582]">{ingredient.amount}</p></div><div className="text-right text-xs text-[#68736F]"><p>{ingredient.protein}g protein</p>{!state.hideCalories && <p className="mt-0.5">{ingredient.calories} cal</p>}</div></div>)}</div><div className="mt-5 grid grid-cols-2 gap-2"><button onClick={() => toggleEaten(meal.id)} className={cx("start-primary", eaten && "!bg-[#6E9084]")}>{eaten ? <><Icon name="check" size={17} /> Logged</> : "I ate this"}</button><button onClick={swap} className="start-secondary"><Icon name="swap" size={16} /> Swap</button></div></BottomSheet>;
 }
 
-function MealSwap({ source, state, ranked, close, choose }: { source: Meal; state: AppState; ranked: Meal[]; close: () => void; choose: (meal: Meal) => void }) {
-  const options = ranked.filter((meal) => meal.id !== source.id && (meal.type === source.type || meal.format === source.format)).slice(0, 5);
-  return <BottomSheet close={close} title={`Swap ${source.type.toLowerCase()}`}><p className="text-sm leading-6 text-[#68736F]">These stay close to the same role in your day and are already filtered through your hard exclusions.</p><div className="mt-4 space-y-2.5">{options.map((meal) => { const macro = mealMacros(meal); return <button key={meal.id} onClick={() => choose(meal)} className="swap-option"><span><strong>{meal.name}</strong><small>{macro.protein}g protein · {meal.prepMinutes} min{state.hideCalories ? "" : ` · ${macro.calories} cal`}</small></span><Icon name="chevron" size={17} /></button>; })}{options.length === 0 && <InfoCard>No close replacement is available with the current hard exclusions. Coach can help change the meal direction instead.</InfoCard>}</div></BottomSheet>;
+function MealSwap({ source, state, ranked, excludeIds, close, choose }: { source: Meal; state: AppState; ranked: Meal[]; excludeIds: string[]; close: () => void; choose: (meal: Meal) => void }) {
+  const [query, setQuery] = useState("");
+  const normalized = query.trim().toLowerCase();
+  const eligible = ranked.filter((meal) => meal.id !== source.id && !excludeIds.includes(meal.id));
+  const searched = normalized
+    ? eligible.filter((meal) => [meal.name, meal.cuisine, meal.format, ...meal.preferenceTags, ...meal.searchTags].join(" ").toLowerCase().includes(normalized))
+    : eligible.filter((meal) => meal.type === source.type || meal.format === source.format);
+
+  const seenNames = new Set<string>();
+  const seenFamilies = new Set<string>();
+  const distinct = searched.filter((meal) => {
+    const name = meal.name.trim().toLowerCase();
+    const family = mealFamilyKey(meal);
+    if (seenNames.has(name) || (!normalized && seenFamilies.has(family))) return false;
+    seenNames.add(name);
+    seenFamilies.add(family);
+    return true;
+  });
+  const fallback = searched.filter((meal, index, array) => array.findIndex((candidate) => candidate.name.trim().toLowerCase() === meal.name.trim().toLowerCase()) === index);
+  const options = (distinct.length ? distinct : fallback).slice(0, 6);
+
+  return <BottomSheet close={close} title={`Swap ${source.type.toLowerCase()}`}><p className="text-sm leading-6 text-[#68736F]">Search for what sounds better or choose a different option. Meals already in today’s plan are removed so you do not see duplicates.</p><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try: salmon, tacos, pasta, bowl..." className="mt-3 w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm outline-none focus:border-[#6E9084]" /><div className="mt-4 space-y-2.5">{options.map((meal) => { const macro = mealMacros(meal); return <button key={meal.id} onClick={() => choose(meal)} className="swap-option"><span><strong>{meal.name}</strong><small>{macro.protein}g protein · {meal.prepMinutes} min{state.hideCalories ? "" : ` · ${macro.calories} cal`}</small></span><Icon name="chevron" size={17} /></button>; })}{options.length === 0 && <InfoCard>{normalized ? "No audited meal in the current library matches that yet. Add it under ‘Want something else?’ and Coach can help find the closest direction." : "No non-duplicate replacement is available with the current hard exclusions. Try a search or tell Coach what you want instead."}</InfoCard>}</div></BottomSheet>;
 }
 
 function ProfileSheet({ state, targets, patch, close, reset }: { state: AppState; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; close: () => void; reset: () => void }) {

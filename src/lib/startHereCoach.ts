@@ -1,5 +1,6 @@
 import { calculateTargets, validateCalorieTarget, validateProteinTarget } from "@/lib/startHereEngine";
-import { buildDayMeals } from "@/lib/startHerePlan";
+import { buildDayMeals, currentTargets } from "@/lib/startHerePlan";
+import { answerGeneralCoachQuestion } from "@/lib/startHereCoachKnowledge";
 import type { AppState, Equipment } from "@/lib/startHereModels";
 
 export interface CoachActionResult {
@@ -268,6 +269,31 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
     };
   }
 
+
+  if (/different meals|new meals|something else to eat|change up (?:my )?meals|rotate (?:my )?meals/.test(text)) {
+    return {
+      patch: { mealRotation: state.mealRotation + 1, swappedMealIds: {} },
+      reply: "Done. I rotated the day toward a different set of high-ranked meals while keeping your targets, hard exclusions, and positive preferences intact.",
+      changeSummary: "Meal options refreshed",
+    };
+  }
+
+  const requestedFood = text.match(/(?:i want|i'd like|id like|give me|add)\s+(.+?)(?:\s+(?:more often|for my meals|to my meals))?(?:\.|$)/i);
+  if (requestedFood && /eat|food|meal|pasta|taco|salmon|chicken|turkey|steak|rice|bowl|wrap|sandwich|smoothie|oat|yogurt|egg|burger|shrimp|fish|potato/.test(text)) {
+    const values = requestedFood[1]
+      .replace(/\b(?:to eat|for dinner|for lunch|for breakfast)\b/gi, "")
+      .split(/,|\band\b/i)
+      .map((item) => titleCase(item.replace(/\b(?:more|often|please)\b/gi, "").trim()))
+      .filter((item) => item.length > 1 && item.length < 60);
+    if (values.length) {
+      return {
+        patch: { foodRequests: unique([...state.foodRequests, ...values]), mealRotation: state.mealRotation + 1 },
+        reply: `Added ${values.join(" + ")} to what you actively want to eat. Matching meals now get the strongest ranking boost, and I rotated the day so you can see a different set immediately.`,
+        changeSummary: `Food direction → ${values.join(" + ")}`,
+      };
+    }
+  }
+
   const loveFood = text.match(/(?:i love|i like|i want more|give me more)\s+([a-z][a-z\s-]{2,30})(?:\.|$)/i);
   if (loveFood && !/detail|time|exercise/.test(loveFood[1])) {
     const food = titleCase(loveFood[1].replace(/food|meals?/g, "").trim());
@@ -331,6 +357,12 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
       reply: "That sounds like a safety question rather than a normal plan tweak. I will not diagnose it or push through concerning symptoms. Use appropriate medical guidance before changing training around that issue.",
       clarification: "safety",
     };
+  }
+
+
+  const generalAnswer = answerGeneralCoachQuestion(raw, state, currentTargets(state));
+  if (generalAnswer) {
+    return { patch: {}, reply: generalAnswer };
   }
 
   return {
