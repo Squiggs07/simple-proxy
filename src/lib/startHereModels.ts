@@ -13,6 +13,7 @@ export type UnitSystem = "imperial" | "metric";
 export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
 export type Readiness = "low" | "normal" | "high";
 export type AdaptationKind = "recovery" | "schedule" | "nutrition" | "behavior";
+export type WeekTrainingExceptionKind = "move" | "skip";
 
 export interface TodayOverride {
   minutes: number | null;
@@ -77,6 +78,16 @@ export interface AdaptationEvent {
   title: string;
 }
 
+export interface WeekTrainingException {
+  id: string;
+  weekStart: string;
+  kind: WeekTrainingExceptionKind;
+  fromDate: string;
+  toDate: string | null;
+  createdAt: string;
+  note: string | null;
+}
+
 export interface CoachMessage {
   id: string;
   role: "user" | "coach";
@@ -134,6 +145,7 @@ export interface AppState {
   exerciseSwapLogs: ExerciseSwapLog[];
   readinessCheckIns: ReadinessCheckIn[];
   adaptationEvents: AdaptationEvent[];
+  weekTrainingExceptions: WeekTrainingException[];
   swappedMealIds: Record<string, string>;
   mealPortionOverrides: Record<string, MealPortion>;
   rejectedMealIds: string[];
@@ -144,7 +156,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 8,
+  version: 9,
   onboarded: false,
   currentDay: "",
   unitSystem: "imperial",
@@ -198,6 +210,7 @@ export const INITIAL_STATE: AppState = {
   exerciseSwapLogs: [],
   readinessCheckIns: [],
   adaptationEvents: [],
+  weekTrainingExceptions: [],
   swappedMealIds: {},
   mealPortionOverrides: {},
   rejectedMealIds: [],
@@ -237,6 +250,7 @@ export function mergeStoredState(value: unknown): AppState {
     exerciseSwapLogs: Array.isArray(stored.exerciseSwapLogs) ? stored.exerciseSwapLogs : [],
     readinessCheckIns: Array.isArray(stored.readinessCheckIns) ? stored.readinessCheckIns : [],
     adaptationEvents: Array.isArray(stored.adaptationEvents) ? stored.adaptationEvents : [],
+    weekTrainingExceptions: Array.isArray(stored.weekTrainingExceptions) ? stored.weekTrainingExceptions : [],
     swappedMealIds: stored.swappedMealIds ?? {},
     mealPortionOverrides: stored.mealPortionOverrides ?? {},
     rejectedMealIds: Array.isArray(stored.rejectedMealIds) ? stored.rejectedMealIds : [],
@@ -246,6 +260,6 @@ export function mergeStoredState(value: unknown): AppState {
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
     currentDay: typeof stored.currentDay === "string" ? stored.currentDay : "",
-    version: 8,
+    version: 9,
   };
 }
