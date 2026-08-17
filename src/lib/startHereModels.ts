@@ -12,6 +12,7 @@ export type MealPortion = "smaller" | "standard" | "larger";
 export type UnitSystem = "imperial" | "metric";
 export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
 export type Readiness = "low" | "normal" | "high";
+export type AdaptationKind = "recovery" | "schedule" | "nutrition" | "behavior";
 
 export interface TodayOverride {
   minutes: number | null;
@@ -52,9 +53,28 @@ export interface MealLog {
   mealId: string;
 }
 
+export interface MealSwapLog {
+  date: string;
+  sourceMealId: string;
+  chosenMealId: string;
+}
+
+export interface ExerciseSwapLog {
+  date: string;
+  sourceExerciseId: string;
+  chosenExerciseId: string;
+}
+
 export interface ReadinessCheckIn {
   date: string;
   readiness: Readiness;
+}
+
+export interface AdaptationEvent {
+  id: string;
+  date: string;
+  kind: AdaptationKind;
+  title: string;
 }
 
 export interface CoachMessage {
@@ -110,7 +130,10 @@ export interface AppState {
   todayOverride: TodayOverride;
   eatenMealIds: string[];
   mealLogs: MealLog[];
+  mealSwapLogs: MealSwapLog[];
+  exerciseSwapLogs: ExerciseSwapLog[];
   readinessCheckIns: ReadinessCheckIn[];
+  adaptationEvents: AdaptationEvent[];
   swappedMealIds: Record<string, string>;
   mealPortionOverrides: Record<string, MealPortion>;
   rejectedMealIds: string[];
@@ -121,7 +144,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 7,
+  version: 8,
   onboarded: false,
   currentDay: "",
   unitSystem: "imperial",
@@ -171,7 +194,10 @@ export const INITIAL_STATE: AppState = {
   todayOverride: { minutes: null, equipment: null, note: null },
   eatenMealIds: [],
   mealLogs: [],
+  mealSwapLogs: [],
+  exerciseSwapLogs: [],
   readinessCheckIns: [],
+  adaptationEvents: [],
   swappedMealIds: {},
   mealPortionOverrides: {},
   rejectedMealIds: [],
@@ -207,7 +233,10 @@ export function mergeStoredState(value: unknown): AppState {
     foodRequests: Array.isArray(stored.foodRequests) ? stored.foodRequests : [],
     mealRotation: typeof stored.mealRotation === "number" ? stored.mealRotation : 0,
     mealLogs: Array.isArray(stored.mealLogs) ? stored.mealLogs : [],
+    mealSwapLogs: Array.isArray(stored.mealSwapLogs) ? stored.mealSwapLogs : [],
+    exerciseSwapLogs: Array.isArray(stored.exerciseSwapLogs) ? stored.exerciseSwapLogs : [],
     readinessCheckIns: Array.isArray(stored.readinessCheckIns) ? stored.readinessCheckIns : [],
+    adaptationEvents: Array.isArray(stored.adaptationEvents) ? stored.adaptationEvents : [],
     swappedMealIds: stored.swappedMealIds ?? {},
     mealPortionOverrides: stored.mealPortionOverrides ?? {},
     rejectedMealIds: Array.isArray(stored.rejectedMealIds) ? stored.rejectedMealIds : [],
@@ -217,6 +246,6 @@ export function mergeStoredState(value: unknown): AppState {
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
     currentDay: typeof stored.currentDay === "string" ? stored.currentDay : "",
-    version: 7,
+    version: 8,
   };
 }
