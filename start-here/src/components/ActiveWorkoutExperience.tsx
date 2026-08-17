@@ -45,19 +45,6 @@ export function ActiveWorkoutExperience({ workout, state, onClose, onSwap, onFin
   const [restSeconds, setRestSeconds] = useState(0);
 
   useEffect(() => {
-    setDrafts((current) => {
-      const next: Record<string, SetDraft[]> = {};
-      for (const item of workout.exercises) {
-        const existing = current[item.exercise.id];
-        next[item.exercise.id] = existing?.length === item.sets
-          ? existing
-          : Array.from({ length: item.sets }, (_, index) => existing?.[index] ?? { weight: "", reps: "", complete: false });
-      }
-      return next;
-    });
-  }, [workout]);
-
-  useEffect(() => {
     if (restSeconds <= 0) return;
     const timer = window.setInterval(() => setRestSeconds((value) => Math.max(0, value - 1)), 1000);
     return () => window.clearInterval(timer);

@@ -115,14 +115,17 @@ export function StartHereAppV2() {
   const [building, setBuilding] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("start-here-state-v3");
-      if (saved) setState(mergeStoredState(JSON.parse(saved)));
-    } catch {
-      setState(INITIAL_STATE);
-    } finally {
-      setReady(true);
-    }
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = localStorage.getItem("start-here-state-v3");
+        if (saved) setState(mergeStoredState(JSON.parse(saved)));
+      } catch {
+        setState(INITIAL_STATE);
+      } finally {
+        setReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
