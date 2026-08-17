@@ -28,10 +28,39 @@ model Profile {
   heightCm      Float
   weightKg      Float
   activityLevel String
-  // Comma-separated dietary exclusions/preferences (free text + presets).
+  // Legacy comma-separated hard exclusions consumed by the current meal engine.
+  // New structured preference fields below are the source of truth for the rebuild.
   exclusions    String   @default("")
   mealPriority  String   @default("balanced")
   units         String   @default("imperial")
+
+  // Training preferences. These are intentionally plain strings so new choices can
+  // be introduced without a schema migration for every UX iteration.
+  trainingDays    Int    @default(3)
+  sessionMinutes  Int    @default(45)
+  equipment       String @default("gym")
+  experienceLevel String @default("beginner")
+  confidenceLevel String @default("unsure")
+
+  // JSON string arrays. Positive preferences are kept separate from dislikes and
+  // hard exclusions because they have different ranking/safety semantics.
+  likedFoods        String @default("[]")
+  preferredCuisines String @default("[]")
+  mealFormats       String @default("[]")
+  dislikes          String @default("[]")
+  neverFoods        String @default("[]")
+  allergies         String @default("[]")
+  dietType          String @default("none")
+  breakfastStyle    String @default("either")
+  cookingMinutes    Int    @default(20)
+  budgetLevel       String @default("moderate")
+  varietyPreference String @default("some")
+  mealsPerDay       Int    @default(4)
+
+  // JSON string array of general health/safety flags disclosed in onboarding.
+  // These guide conservative routing; they are never a diagnosis.
+  healthFlags String @default("[]")
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
