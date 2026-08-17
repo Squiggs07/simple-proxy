@@ -32,40 +32,44 @@ jobs:
 
           start = text.index('  function startWorkout() {')
           end = text.index('  function handleCoach', start)
-          new_functions = '''  function startWorkout() {
-    setActiveWorkout(true);
-  }
-
-  function finishWorkout(exercises: AppState["workoutLogs"][number]["exercises"]) {
-    const log = {
-      id: `workout-${Date.now()}`,
-      date: todayKey(),
-      workoutName: effectiveWorkout.name,
-      minutes: effectiveWorkout.minutes,
-      completed: true,
-      exercises,
-    };
-    patch({ workoutLogs: [...state.workoutLogs, log], todayOverride: { minutes: null, equipment: null, note: null } });
-    setActiveWorkout(false);
-    setExerciseSwaps({});
-  }
-
-'''
+          new_functions = "\n".join([
+              '  function startWorkout() {',
+              '    setActiveWorkout(true);',
+              '  }',
+              '',
+              '  function finishWorkout(exercises: AppState["workoutLogs"][number]["exercises"]) {',
+              '    const log = {',
+              '      id: `workout-${Date.now()}`,',
+              '      date: todayKey(),',
+              '      workoutName: effectiveWorkout.name,',
+              '      minutes: effectiveWorkout.minutes,',
+              '      completed: true,',
+              '      exercises,',
+              '    };',
+              '    patch({ workoutLogs: [...state.workoutLogs, log], todayOverride: { minutes: null, equipment: null, note: null } });',
+              '    setActiveWorkout(false);',
+              '    setExerciseSwaps({});',
+              '  }',
+              '',
+              ''
+          ])
           text = text[:start] + new_functions + text[end:]
 
           start = text.index('  if (activeWorkout) {')
           end = text.index('\n\n  return (', start)
-          active_block = '''  if (activeWorkout) {
-    return (
-      <ActiveWorkoutExperience
-        workout={effectiveWorkout}
-        state={state}
-        onClose={() => setActiveWorkout(false)}
-        onFinish={finishWorkout}
-        onSwap={(exerciseId, replacementId) => setExerciseSwaps((current) => ({ ...current, [exerciseId]: replacementId }))}
-      />
-    );
-  }'''
+          active_block = "\n".join([
+              '  if (activeWorkout) {',
+              '    return (',
+              '      <ActiveWorkoutExperience',
+              '        workout={effectiveWorkout}',
+              '        state={state}',
+              '        onClose={() => setActiveWorkout(false)}',
+              '        onFinish={finishWorkout}',
+              '        onSwap={(exerciseId, replacementId) => setExerciseSwaps((current) => ({ ...current, [exerciseId]: replacementId }))}',
+              '      />',
+              '    );',
+              '  }'
+          ])
           text = text[:start] + active_block + text[end:]
 
           marker = 'function ActiveWorkoutView('
