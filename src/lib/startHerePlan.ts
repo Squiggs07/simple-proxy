@@ -52,6 +52,13 @@ function mealContains(meal: Meal, terms: string[]) {
   return terms.some((term) => term.trim() && haystack.includes(term.toLowerCase()));
 }
 
+export function mealFamilyKey(meal: Meal) {
+  const text = [meal.name, meal.format, ...meal.searchTags].join(" ").toLowerCase();
+  const bases = ["rice", "pasta", "wrap", "sandwich", "smoothie", "oats", "toast", "potato", "taco", "yogurt", "salad"];
+  const base = bases.find((item) => text.includes(item)) ?? meal.format.toLowerCase();
+  return `${base}:${meal.format.toLowerCase()}`;
+}
+
 export function isMealAllowed(meal: Meal, state: AppState) {
   if (state.rejectedMealIds.includes(meal.id)) return false;
   if (mealContains(meal, [...state.allergies, ...state.neverFoods])) return false;
@@ -71,6 +78,11 @@ export function rankMeals(state: AppState): RankedMeal[] {
     .map((meal) => {
       let score = 0;
       const reasons: string[] = [];
+      const directRequests = state.foodRequests.filter((request) => mealContains(meal, [request])).length;
+      if (directRequests) {
+        score += directRequests * 9;
+        reasons.push("matches something you specifically asked to eat");
+      }
       const matches = meal.preferenceTags.filter((tag) => includesLoose(state.likedFoods, tag)).length;
       if (matches) {
         score += matches * 5;
@@ -99,16 +111,38 @@ export function rankMeals(state: AppState): RankedMeal[] {
     .sort((a, b) => b.score - a.score || a.meal.prepMinutes - b.meal.prepMinutes);
 }
 
-function pickDistinctByType(ranked: RankedMeal[], type: Meal["type"], used: Set<string>) {
-  const option = ranked.find(({ meal }) => meal.type === type && !used.has(meal.id));
+function chooseFromPool(candidates: RankedMeal[], rotation: number) {
+  if (!candidates.length) return null;
+  const topPool = candidates.slice(0, Math.min(4, candidates.length));
+  return topPool[Math.abs(rotation) % topPool.length]?.meal ?? null;
+}
+
+function pickDistinctByType(
+  ranked: RankedMeal[],
+  type: Meal["type"],
+  usedIds: Set<string>,
+  usedFamilies: Set<string>,
+  allowFamilyRepeat: boolean,
+  rotation: number,
+) {
+  const strict = ranked.filter(({ meal }) =>
+    meal.type === type &&
+    !usedIds.has(meal.id) &&
+    (allowFamilyRepeat || !usedFamilies.has(mealFamilyKey(meal))),
+  );
+  const fallback = ranked.filter(({ meal }) => meal.type === type && !usedIds.has(meal.id));
+  const option = chooseFromPool(strict.length ? strict : fallback, rotation);
   if (!option) return null;
-  used.add(option.meal.id);
-  return option.meal;
+  usedIds.add(option.id);
+  usedFamilies.add(mealFamilyKey(option));
+  return option;
 }
 
 export function buildDayMeals(state: AppState, calorieTarget: number, proteinTarget: number): PlannedMeal[] {
   const ranked = rankMeals(state);
-  const used = new Set<string>();
+  const usedIds = new Set<string>();
+  const usedFamilies = new Set<string>();
+  const allowFamilyRepeat = state.variety === "repeat";
   const count = Math.max(2, Math.min(5, state.mealsPerDay));
   const types: Meal["type"][] = count <= 2
     ? ["Lunch", "Dinner"]
@@ -117,15 +151,18 @@ export function buildDayMeals(state: AppState, calorieTarget: number, proteinTar
       : ["Breakfast", "Lunch", "Dinner", "Snack"];
 
   const selected: Meal[] = [];
-  for (const type of types) {
-    const meal = pickDistinctByType(ranked, type, used);
+  for (let index = 0; index < types.length; index += 1) {
+    const meal = pickDistinctByType(ranked, types[index], usedIds, usedFamilies, allowFamilyRepeat, state.mealRotation + index);
     if (meal) selected.push(meal);
   }
   while (selected.length < count) {
-    const next = ranked.find(({ meal }) => !used.has(meal.id));
+    const strict = ranked.filter(({ meal }) => !usedIds.has(meal.id) && (allowFamilyRepeat || !usedFamilies.has(mealFamilyKey(meal))));
+    const fallback = ranked.filter(({ meal }) => !usedIds.has(meal.id));
+    const next = chooseFromPool(strict.length ? strict : fallback, state.mealRotation + selected.length);
     if (!next) break;
-    used.add(next.meal.id);
-    selected.push(next.meal);
+    usedIds.add(next.id);
+    usedFamilies.add(mealFamilyKey(next));
+    selected.push(next);
   }
 
   const baseCalories = selected.reduce((sum, meal) => sum + mealMacros(meal).calories, 0);
@@ -179,7 +216,10 @@ export function buildWorkout(state: AppState): WorkoutPlan {
   const minutes = state.todayOverride.minutes ?? state.sessionMinutes;
   const equipment = state.todayOverride.equipment ?? state.equipment;
   const olderBeginner = state.age >= 60 && state.experience === "new";
-  const nervousBeginner = state.confidence === "nervous" || state.experience === "new";
+  const nervousBeginner = state.confidence === "nervous" || state.liftingHistory === "none";
+  const consistentlyTrained = state.liftingHistory === "consistent" || state.experience === "experienced";
+  const returning = state.liftingHistory === "returning";
+  const hasBaseline = Object.entries(state.liftingBaseline).some(([key, value]) => key !== "note" && value !== null);
   const maxExercises = minutes <= 20 ? 3 : minutes <= 30 ? 4 : minutes <= 45 ? 5 : 6;
   const desiredPatterns: Exercise["pattern"][] = ["squat", "push", "pull", "hinge", "core", olderBeginner ? "balance" : "single-leg"];
   const chosen: Exercise[] = [];
@@ -207,7 +247,8 @@ export function buildWorkout(state: AppState): WorkoutPlan {
     }
   }
 
-  const sets = minutes <= 20 ? 2 : state.experience === "experienced" ? 3 : 2;
+  const baseSets = minutes <= 20 ? 2 : consistentlyTrained || returning ? 3 : 2;
+  const repTarget = consistentlyTrained ? "6–10 reps" : returning ? "8–12 reps" : "8–12 reps";
   return {
     name: state.trainingDays <= 3 ? "Full Body A" : "Strength A",
     minutes,
@@ -215,15 +256,19 @@ export function buildWorkout(state: AppState): WorkoutPlan {
     focus: state.focusAreas.length ? state.focusAreas.join(" + ") : "Full body",
     exercises: chosen.slice(0, maxExercises).map((exercise, index) => ({
       exercise,
-      sets: index >= 4 ? 2 : sets + (index < 3 && minutes >= 45 ? 1 : 0),
-      reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : "8–12 reps",
+      sets: index >= 4 ? 2 : baseSets + (consistentlyTrained && index < 2 && minutes >= 60 ? 1 : 0),
+      reps: exercise.pattern === "core" || exercise.pattern === "balance" ? "8–12 controlled reps" : repTarget,
       previous: previousPerformance(state, exercise.id),
     })),
     note: olderBeginner
       ? "Stable movements, lower starting volume, and a little balance work. The goal is confidence and capability."
-      : nervousBeginner
-        ? "Simple movements with 2–3 reps left in reserve. Finish feeling like you could come back."
-        : "Keep the main movements repeatable so progression is easy to see.",
+      : state.liftingHistory === "none"
+        ? "You marked yourself as new to lifting, so the first week starts conservatively and leaves 2–3 good reps in reserve."
+        : returning
+          ? `You have lifted before${hasBaseline ? " and gave us a rough strength baseline" : ""}, so the plan starts with moderate volume while you rebuild consistency.`
+          : consistentlyTrained
+            ? `You already train consistently${hasBaseline ? " and gave us a rough working-set baseline" : ""}, so the plan starts with enough volume to feel like real training without guessing your loads.`
+            : "Keep the main movements repeatable so progression is easy to see.",
   };
 }
 
