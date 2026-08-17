@@ -1,21 +1,26 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { kgToLbs } from "@/lib/units";
 import type { Goal, SafetyFlag } from "@/lib/macros";
-import { Disclaimer } from "@/components/Disclaimer";
+import { AppNav } from "@/components/AppNav";
 
-const GOAL_HEADLINE: Record<Goal, string> = {
-  lose_fat: "lose fat at a steady, sustainable pace",
-  build_muscle: "build muscle and strength",
-  recomp: "get stronger and healthier",
-  healthy_habits: "eat better and feel better",
+const GOAL_LABEL: Record<Goal, string> = {
+  lose_fat: "Lose fat and keep muscle",
+  build_muscle: "Build muscle gradually",
+  recomp: "Recompose",
+  healthy_habits: "Feel healthier",
+  feel_stronger: "Feel stronger and healthier",
+  maintain: "Maintain my weight",
+  unsure: "Build a healthy starting point",
 };
 
-function formatNumber(n: number) {
-  return n.toLocaleString("en-US");
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
 }
 
 export default async function SummaryPage() {
@@ -23,185 +28,130 @@ export default async function SummaryPage() {
   if (!session?.user?.id) redirect("/signin");
 
   const userId = session.user.id;
-  const [profile, target] = await Promise.all([
+  const [profile, target, todayPlan] = await Promise.all([
     prisma.profile.findUnique({ where: { userId } }),
     prisma.macroTarget.findFirst({
       where: { userId },
       orderBy: { computedAt: "desc" },
     }),
+    prisma.mealPlan.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      include: { meals: true },
+    }),
   ]);
+
   if (!profile || !target) redirect("/onboarding");
 
   const flags = JSON.parse(target.flags) as SafetyFlag[];
   const goal = profile.goal as Goal;
-  const isMaintenancePlan = target.planType === "maintenance";
-  const weightDisplay =
-    profile.units === "imperial"
-      ? `${Math.round(kgToLbs(profile.weightKg))} lbs`
-      : `${Math.round(profile.weightKg)} kg`;
+  const nextMeal = todayPlan?.meals.find((meal) => !meal.eatenAt) ?? todayPlan?.meals[0];
+  const completedMeals = todayPlan?.meals.filter((meal) => Boolean(meal.eatenAt)).length ?? 0;
+  const totalMeals = todayPlan?.meals.length ?? profile.mealsPerDay;
 
   return (
-    <main className="flex flex-1 flex-col items-center px-6 py-10">
-      <div className="w-full max-w-md">
-        <p className="text-4xl" aria-hidden>
-          🎉
-        </p>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight text-stone-900">
-          Here&apos;s your starting point.
-        </h1>
-        <p className="mt-3 text-lg leading-relaxed text-stone-600">
-          {isMaintenancePlan ? (
-            <>
-              We&apos;ve set you up with a plan focused on nourishing your body
-              well and building healthy habits — not eating less.
-            </>
-          ) : (
-            <>
-              To {GOAL_HEADLINE[goal]}, you don&apos;t need anything extreme.
-              Here&apos;s what a good day of eating looks like for you:
-            </>
-          )}
-        </p>
-
-        <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-stone-200">
-          <p className="text-stone-500">Each day, aim for about</p>
-          <p className="mt-2 text-4xl font-bold text-stone-900">
-            {formatNumber(target.calories)}{" "}
-            <span className="text-xl font-semibold text-stone-500">calories</span>
-          </p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-700">
-            {target.proteinG}g of protein
-          </p>
-          <p className="mt-4 text-sm leading-relaxed text-stone-500">
-            On a plate, that&apos;s three satisfying meals a day, each with a
-            palm-sized portion of protein (like chicken, fish, eggs, beans, or
-            tofu), plus room for snacks. No weighing everything, no going
-            hungry.
-          </p>
-          <div className="mt-5 grid grid-cols-3 gap-3 border-t border-stone-100 pt-4 text-center">
-            <div>
-              <p className="text-lg font-semibold text-stone-800">
-                {target.proteinG}g
-              </p>
-              <p className="text-xs text-stone-400">protein</p>
-            </div>
-            <div>
-              <p className="text-lg font-semibold text-stone-800">
-                {target.carbsG}g
-              </p>
-              <p className="text-xs text-stone-400">carbs</p>
-            </div>
-            <div>
-              <p className="text-lg font-semibold text-stone-800">
-                {target.fatG}g
-              </p>
-              <p className="text-xs text-stone-400">fat</p>
-            </div>
+    <main className="start-page min-h-[100dvh] pb-24">
+      <div className="start-shell">
+        <header className="flex items-start justify-between gap-4 pt-1">
+          <div>
+            <p className="text-sm font-semibold text-[var(--sage-strong)]">
+              {new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(new Date())}
+            </p>
+            <h1 className="mt-1 text-[2.15rem] leading-none font-semibold tracking-[-0.05em] text-[var(--ink)]">
+              {greeting()}
+            </h1>
+            <p className="mt-2 text-sm leading-5 text-[var(--muted)]">Here is your manageable plan for today.</p>
           </div>
-        </div>
-
-        {(isMaintenancePlan ||
-          flags.includes("underweight_no_deficit") ||
-          flags.includes("under_18_no_deficit")) && (
-          <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-sm leading-relaxed text-sky-900 ring-1 ring-sky-100">
-            <p className="font-semibold">A quick, caring note</p>
-            <p className="mt-2">
-              {isMaintenancePlan ? (
-                <>
-                  Based on what you shared, eating less isn&apos;t the right
-                  move for your body right now — so we&apos;ve built your plan
-                  around fueling yourself well instead. For anything beyond
-                  that, we&apos;d really encourage a chat with a doctor or
-                  registered dietitian. They can give you guidance we
-                  can&apos;t.
-                </>
-              ) : (
-                <>
-                  Based on what you shared, we&apos;d really encourage a chat
-                  with a doctor or registered dietitian alongside this plan —
-                  they can personalize things in ways we can&apos;t, and
-                  they&apos;ll make sure your body is getting everything it
-                  needs.
-                </>
-              )}
-            </p>
-          </div>
-        )}
-
-        {!isMaintenancePlan && flags.includes("clamped_to_calorie_floor") && (
-          <div className="mt-5 rounded-2xl bg-sky-50 p-5 text-sm leading-relaxed text-sky-900 ring-1 ring-sky-100">
-            <p>
-              One thing worth knowing: we nudged your target up a bit. Going
-              lower wouldn&apos;t be good for your energy or health, and slower
-              progress you can stick with beats fast progress you can&apos;t.
-            </p>
-          </div>
-        )}
-
-        <details className="group mt-5 rounded-2xl bg-white p-5 ring-1 ring-stone-200">
-          <summary className="cursor-pointer list-none text-sm font-semibold text-stone-700">
-            <span className="group-open:hidden">
-              Curious how we got these numbers? →
-            </span>
-            <span className="hidden group-open:inline">
-              How we got these numbers
-            </span>
-          </summary>
-          <div className="mt-3 space-y-2 text-sm leading-relaxed text-stone-500">
-            <p>
-              We estimated how much energy your body uses in a typical day from
-              your age, height, weight ({weightDisplay}), and how active you
-              are — that came out to about{" "}
-              {formatNumber(target.maintenanceCalories)} calories.
-            </p>
-            <p>
-              {isMaintenancePlan || target.calories === target.maintenanceCalories
-                ? "Your target matches that, so your body gets exactly the fuel it needs while you build habits."
-                : target.calories < target.maintenanceCalories
-                  ? "Eating a little less than that — never drastically less — is how fat loss happens at a pace you can actually keep up."
-                  : "Eating a little more than that gives your body the extra building material it needs to add muscle."}
-            </p>
-            <p>
-              The protein target keeps you full and protects your muscle. The
-              carbs and fat split fills in the rest — you don&apos;t need to
-              hit any of these perfectly for this to work.
-            </p>
-          </div>
-        </details>
-
-        <Link
-          href="/plan"
-          className="mt-8 block rounded-xl bg-emerald-600 px-6 py-4 text-center text-lg font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-        >
-          Show me today&apos;s meals
-        </Link>
-
-        <div className="mt-8 flex flex-col items-center gap-4">
-          <Link href="/progress" className="text-sm font-medium text-emerald-700">
-            My progress
-          </Link>
           <Link
             href="/onboarding"
-            className="text-sm font-medium text-emerald-700"
+            aria-label="Profile and plan settings"
+            className="grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-white text-sm font-bold text-[var(--evergreen-dark)] shadow-[var(--shadow-card)]"
           >
-            Adjust my answers
+            You
           </Link>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/" });
-            }}
-          >
-            <button type="submit" className="text-sm text-stone-400">
-              Sign out
-            </button>
-          </form>
-        </div>
+        </header>
 
-        <div className="mt-10">
-          <Disclaimer />
-        </div>
+        <section className="mt-7 overflow-hidden rounded-[1.55rem] bg-[var(--evergreen)] p-5 text-white shadow-[0_14px_34px_rgba(23,72,63,.18)]">
+          <p className="text-xs font-bold tracking-[0.12em] text-[#bed8cf] uppercase">Your next useful step</p>
+          <h2 className="mt-3 text-[1.55rem] leading-7 font-semibold tracking-[-0.035em]">
+            {todayPlan ? "Keep food simple today." : "Build today’s meals."}
+          </h2>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-[#d7e5e0]">
+            {todayPlan
+              ? `${completedMeals} of ${totalMeals} planned meals logged. You do not need a perfect day — just a useful next choice.`
+              : "We’ll turn your targets and preferences into a practical day of meals with verified nutrition underneath."}
+          </p>
+          <Link href="/plan" className="mt-5 inline-flex min-h-12 items-center justify-center rounded-2xl bg-[var(--butter)] px-5 text-sm font-bold text-[var(--evergreen-dark)]">
+            {todayPlan ? "See my next meal" : "Build today’s meals"}
+            <span aria-hidden className="ml-2">→</span>
+          </Link>
+        </section>
+
+        <section className="mt-5 grid grid-cols-2 gap-3">
+          <div className="start-card p-4">
+            <p className="text-xs font-semibold text-[var(--muted)]">Daily food</p>
+            <p className="mt-1.5 text-2xl font-semibold tracking-[-0.04em] text-[var(--ink)]">{target.calories.toLocaleString()}</p>
+            <p className="mt-0.5 text-xs text-[var(--muted)]">starting estimate</p>
+          </div>
+          <div className="start-card p-4">
+            <p className="text-xs font-semibold text-[var(--muted)]">Protein</p>
+            <p className="mt-1.5 text-2xl font-semibold tracking-[-0.04em] text-[var(--evergreen)]">{target.proteinG}g</p>
+            <p className="mt-0.5 text-xs text-[var(--muted)]">supports your goal</p>
+          </div>
+        </section>
+
+        <section className="start-card mt-3 p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="start-eyebrow">Your direction</p>
+              <h2 className="mt-2 text-lg font-semibold tracking-[-0.025em] text-[var(--ink)]">{GOAL_LABEL[goal]}</h2>
+              <p className="mt-1.5 text-sm leading-5 text-[var(--muted)]">
+                {profile.trainingDays} training days · about {profile.sessionMinutes} minutes · {profile.equipment === "gym" ? "full gym" : profile.equipment}
+              </p>
+            </div>
+            <span className="rounded-full bg-[var(--sage)] px-3 py-1.5 text-xs font-bold text-[var(--evergreen-dark)]">
+              Starting plan
+            </span>
+          </div>
+        </section>
+
+        {nextMeal ? (
+          <section className="start-card mt-3 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="start-eyebrow">Next meal</p>
+                <h2 className="mt-2 text-lg font-semibold tracking-[-0.025em] text-[var(--ink)]">{nextMeal.title}</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">{nextMeal.proteinG.toFixed(0)}g protein · {nextMeal.kcal} calories</p>
+              </div>
+              <Link href="/plan" className="grid h-11 w-11 place-items-center rounded-full bg-[var(--sage)] font-bold text-[var(--evergreen-dark)]" aria-label="Open meal plan">→</Link>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="start-card mt-3 p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="start-eyebrow">Training</p>
+              <h2 className="mt-2 text-lg font-semibold tracking-[-0.025em] text-[var(--ink)]">Your strength plan is next.</h2>
+              <p className="mt-1.5 text-sm leading-5 text-[var(--muted)]">We’ll build sessions around the time, equipment, and confidence level you chose.</p>
+            </div>
+            <Link href="/train" className="shrink-0 rounded-full border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-bold text-[var(--evergreen-dark)]">Train</Link>
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-[1.3rem] bg-[var(--butter)]/45 p-4">
+          <p className="font-semibold text-[var(--evergreen-dark)]">Something doesn’t fit?</p>
+          <p className="mt-1 text-sm leading-5 text-[var(--muted)]">Tell Coach in normal words. Meals, workouts, schedule, and targets should adapt to you.</p>
+          <Link href="/coach" className="mt-3 inline-flex min-h-11 items-center text-sm font-bold text-[var(--evergreen-dark)]">Talk to Coach →</Link>
+        </section>
+
+        {flags.length ? (
+          <p className="mt-5 text-xs leading-5 text-[var(--muted)]">
+            Your starting target includes one or more built-in safety adjustments. Start Here never removes those safeguards through AI or manual requests.
+          </p>
+        ) : null}
       </div>
+      <AppNav active="today" />
     </main>
   );
 }
