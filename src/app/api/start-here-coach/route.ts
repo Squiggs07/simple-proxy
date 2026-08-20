@@ -89,16 +89,22 @@ const responseSchema = z.object({
     protein: z.number().int().min(0).max(500),
     basis: z.enum(["catalog", "user_provided", "estimated"]),
     catalogId: z.string().trim().max(100).nullable(),
-    calorieRange: z.tuple([z.number().int().min(0).max(5000), z.number().int().min(0).max(5000)]).nullable(),
-    proteinRange: z.tuple([z.number().int().min(0).max(500), z.number().int().min(0).max(500)]).nullable(),
+    calorieRange: z.object({
+      min: z.number().int().min(0).max(5000),
+      max: z.number().int().min(0).max(5000),
+    }).nullable(),
+    proteinRange: z.object({
+      min: z.number().int().min(0).max(500),
+      max: z.number().int().min(0).max(500),
+    }).nullable(),
   }).nullable(),
 });
 
 type GeneratedFoodLog = z.infer<typeof responseSchema>["foodLog"];
 
-function orderedRange(range: [number, number] | null, midpoint: number) {
+function orderedRange(range: { min: number; max: number } | null, midpoint: number) {
   if (!range) return { min: midpoint, max: midpoint };
-  return { min: Math.min(range[0], range[1], midpoint), max: Math.max(range[0], range[1], midpoint) };
+  return { min: Math.min(range.min, range.max, midpoint), max: Math.max(range.min, range.max, midpoint) };
 }
 
 function userActuallyProvidedNutrition(message: string, history: Array<{ role: "user" | "coach"; text: string }>, food: NonNullable<GeneratedFoodLog>) {
