@@ -8,7 +8,6 @@ import { FoodPreferenceEditor } from "@/components/FoodPreferenceEditor";
 import { TrainingBaselineFields } from "@/components/TrainingBaselineFields";
 import { MealPortionControl } from "@/components/MealPortionControl";
 import { MonthlySummarySheet } from "@/components/MonthlySummarySheet";
-import { TodayMealRow } from "@/components/TodayMealRow";
 import { WeightLogSheet } from "@/components/WeightLogSheet";
 import { GOAL_LABELS, type Goal, smoothedWeightTrend } from "@/lib/startHereEngine";
 import { buildAdaptationReview, progressionCue, type AdaptationRecommendation } from "@/lib/startHereAdaptation";
@@ -26,9 +25,11 @@ import {
   buildEffectiveDayMeals,
   buildWorkout,
   currentTargets,
+  dailySnackAllowance,
   exercisePreviousPerformance,
   isMealAllowed,
   mealFamilyKey,
+  optimizeRemainingMealProtein,
   rankMeals,
   reviewProgress,
   type PlannedMeal,
@@ -52,8 +53,9 @@ import {
   buildTrainingWeek,
   daysLabel,
   defaultTrainingDays,
-  normalizePreferredDays,
   mondayOf,
+  preferredDaySelection,
+  togglePreferredDaySelection,
   type TrainingWeekPlan,
   type Weekday,
 } from "@/lib/startHereWeek";
@@ -144,6 +146,7 @@ export function StartHereAppV2() {
   const [coachText, setCoachText] = useState("");
   const [coachBusy, setCoachBusy] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<AppState | null>(null);
+  const [proteinOptimizationNote, setProteinOptimizationNote] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const cloud = useStartHereCloud(state, setState, ready);
 
@@ -240,6 +243,7 @@ export function StartHereAppV2() {
         preferenceEvidence: [...current.preferenceEvidence, mealChoiceEvidence(currentMealId, replacement, replacement.type, observedAt)],
       };
     });
+    setProteinOptimizationNote(null);
     setSwapMealId(null);
   }
 
@@ -292,6 +296,7 @@ export function StartHereAppV2() {
         preferenceEvidence: [...current.preferenceEvidence, mealChoiceEvidence(currentMealId, remembered.meal, source.type, observedAt)],
       };
     });
+    setProteinOptimizationNote(null);
     setSwapMealId(null);
     return null;
   }
@@ -348,7 +353,17 @@ export function StartHereAppV2() {
   }
 
   function updateMealPortion(sourceMealId: string, portion: MealPortion) {
+    setProteinOptimizationNote(null);
     patch({ mealPortionOverrides: { ...state.mealPortionOverrides, [sourceMealId]: portion } });
+  }
+
+  function optimizeProteinPlan() {
+    const optimized = optimizeRemainingMealProtein(state, targets.calories, targets.proteinGrams);
+    patch({ mealPortionOverrides: optimized.portionOverrides });
+    const gap = Math.max(0, targets.proteinGrams - optimized.plannedProtein);
+    setProteinOptimizationNote(gap <= 5
+      ? `Balanced the remaining meals to about ${optimized.plannedProtein}g protein while keeping snack space.`
+      : `Moved the remaining meals to ${optimized.plannedProtein}g protein. About ${gap}g can come from your flexible snack choice.`);
   }
 
   function removeExternalFood(id: string) {
@@ -497,10 +512,10 @@ export function StartHereAppV2() {
       <div className="start-shell">
         <main className="px-5 pb-28 pt-[max(18px,env(safe-area-inset-top))]">
           {tab === "today" && (
-            <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} week={trainingWeek} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
+            <TodayView state={state} week={trainingWeek} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} openProfile={() => setShowProfile(true)} />
           )}
           {tab === "eat" && (
-            <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} removeExternalFood={removeExternalFood} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
+            <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} optimizeProtein={optimizeProteinPlan} optimizationNote={proteinOptimizationNote} clearOptimization={() => setProteinOptimizationNote(null)} rejectMeal={rejectMeal} removeExternalFood={removeExternalFood} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
           )}
           {tab === "train" && (
             <TrainView state={state} workout={effectiveWorkout} week={trainingWeek} startWorkout={startWorkout} setTab={setTab} />
@@ -538,6 +553,7 @@ interface OnboardingProps {
 function Onboarding({ state, step, setStep, patch, toggleArray, targets, building, complete }: OnboardingProps) {
   const totalSteps = 9;
   const [basicProfileValid, setBasicProfileValid] = useState(() => validBasicProfile(state));
+  const trainingScheduleComplete = preferredDaySelection(state.preferredDays).length === state.trainingDays;
   const back = () => setStep((current) => Math.max(0, current - 1));
   return (
     <div className="min-h-dvh bg-[#F7F4EE] text-[#1D2926]">
@@ -608,7 +624,7 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
         )}
 
         {step === 4 && (
-          <OnboardingSection title="What can you realistically train?" copy="A plan that fits three days beats a perfect six-day plan you cannot keep." footer={<Continue onClick={() => setStep(5)} />}>
+          <OnboardingSection title="What can you realistically train?" copy="A plan that fits three days beats a perfect six-day plan you cannot keep." footer={<Continue disabled={!trainingScheduleComplete} onClick={() => setStep(5)} />}>
             <div className="mt-5 space-y-5">
               <TrainingScheduleControls state={state} patch={patch} />
               <ChoiceGroup label="Time per session"><div className="chip-row wrap">{[15,20,30,45,60,75,90].map((n) => <button key={n} onClick={() => patch({ sessionMinutes: n })} className={cx("text-chip", state.sessionMinutes === n && "chip-active")}>{n} min</button>)}</div></ChoiceGroup>
@@ -688,22 +704,20 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
 }
 
 function TrainingScheduleControls({ state, patch }: { state: AppState; patch: (update: Partial<AppState>) => void }) {
-  const selected = normalizePreferredDays(state.preferredDays, state.trainingDays);
+  const selected = preferredDaySelection(state.preferredDays);
+  const complete = selected.length === state.trainingDays;
   function setFrequency(days: number) {
     const weekStart = mondayOf(state.currentDay || todayKey());
     patch({ trainingDays: days, preferredDays: defaultTrainingDays(days), weekTrainingExceptions: state.weekTrainingExceptions.filter((item) => item.weekStart !== weekStart) });
   }
   function chooseDay(day: Weekday) {
-    if (selected.includes(day)) return;
-    const targetIndex = WEEKDAYS.indexOf(day);
-    const nearest = [...selected].sort((a, b) => Math.abs(WEEKDAYS.indexOf(a) - targetIndex) - Math.abs(WEEKDAYS.indexOf(b) - targetIndex))[0];
-    const next = [...selected.filter((item) => item !== nearest), day].sort((a, b) => WEEKDAYS.indexOf(a) - WEEKDAYS.indexOf(b));
+    const next = togglePreferredDaySelection(selected, day, state.trainingDays);
     const weekStart = mondayOf(state.currentDay || todayKey());
     patch({ preferredDays: next, weekTrainingExceptions: state.weekTrainingExceptions.filter((item) => item.weekStart !== weekStart) });
   }
   return <div className="space-y-4">
-    <ChoiceGroup label="Days per week" hint="2–3 is a strong beginner starting point."><div className="chip-row">{[1,2,3,4,5,6].map((n) => <button key={n} onClick={() => setFrequency(n)} className={cx("number-chip", state.trainingDays === n && "chip-active")}>{n}</button>)}</div></ChoiceGroup>
-    <ChoiceGroup label="Preferred days" hint="Tap another day to swap it in."><div className="chip-row wrap">{WEEKDAYS.map((day) => <button key={day} onClick={() => chooseDay(day)} className={cx("text-chip", selected.includes(day) && "chip-active")}>{day}</button>)}</div></ChoiceGroup>
+    <ChoiceGroup label="Days per week" hint="2–3 is a strong beginner starting point."><div className="chip-row">{[1,2,3,4,5,6].map((n) => <button type="button" key={n} onClick={() => setFrequency(n)} className={cx("number-chip", state.trainingDays === n && "chip-active")} aria-pressed={state.trainingDays === n}>{n}</button>)}</div></ChoiceGroup>
+    <ChoiceGroup label="Preferred days" hint={`${selected.length} of ${state.trainingDays} selected`}><div className="chip-row wrap">{WEEKDAYS.map((day) => { const active = selected.includes(day); const full = complete && !active; return <button type="button" key={day} disabled={full} onClick={() => chooseDay(day)} className={cx("text-chip", active && "chip-active", full && "opacity-45")} aria-pressed={active}>{day}</button>; })}</div><p className={cx("mt-2 text-[11px] leading-5", complete ? "text-[#6D7874]" : "font-semibold text-[#9A645D]")}>{complete ? "To replace a day, unselect it first, then choose the day you want." : `Choose ${state.trainingDays - selected.length} more day${state.trainingDays - selected.length === 1 ? "" : "s"} to finish your schedule.`}</p></ChoiceGroup>
   </div>;
 }
 
@@ -762,62 +776,69 @@ function TrainingWeekStrip({ week }: { week: TrainingWeekPlan }) {
   </section>;
 }
 
-function TodayView({ state, targets, meals, workout, week, adaptation, setReadiness, applyAdaptation, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; week: TrainingWeekPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {
-  const completedToday = week.today.trained;
-  const today = state.currentDay || todayKey();
-  const externalFoods = state.externalFoodLogs.filter((item) => item.date === today);
-  const externalTotals = externalFoodTotals(state, today);
-  const proteinLogged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id)).reduce((sum, item) => sum + item.protein, 0) + externalTotals.protein;
-  const nextMeal = meals.find((item) => !state.eatenMealIds.includes(item.meal.id)) ?? meals[0];
-  const overrideActive = Boolean(state.todayOverride.minutes || state.todayOverride.equipment || state.todayOverride.note);
-  const workoutDueToday = week.today.scheduled && !week.today.completed;
-  const nextIsWorkout = !completedToday && (workoutDueToday || overrideActive);
+function TodayView({ state, week, adaptation, setReadiness, applyAdaptation, setTab, openProfile }: { state: AppState; week: TrainingWeekPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; openProfile: () => void }) {
   const readiness = adaptation.latestReadiness?.readiness ?? null;
   const ongoingAdaptation = adaptation.recommendations.find((item) => item.scope === "ongoing");
+  const advisorTitle = readiness === null
+    ? "Start with how you feel."
+    : readiness === "low"
+      ? "Make today easier, not all-or-nothing."
+      : readiness === "high"
+        ? "You have room to do the plan well."
+        : "Stay with the plan you already have.";
+  const advisorCopy = readiness === null
+    ? "A quick check-in gives Start Here enough context to advise you without rearranging everything."
+    : readiness === "low"
+      ? "I’ll keep today conservative. Open Train for the adjusted session, or ask Coach if recovery needs to come first."
+      : readiness === "high"
+        ? "Use the energy for a strong, controlled session. You do not need to add extra work just because today feels good."
+        : week.today.scheduled
+          ? "Your normal rhythm still fits today. Meals stay under Eat and the complete workout stays under Train."
+          : `No workout is planned today. Your next session is ${week.nextTrainingDay.day}; focus on recovery and normal meals.`;
   return <div>
-    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="Here’s your manageable plan." copy={week.today.adjustment === "moved-to" ? "This workout was moved here for this week only." : week.today.excused ? `Today’s normal workout is excused for this week. Your next planned session is ${week.nextTrainingDay.day}.` : week.today.scheduled ? "Today fits your normal training rhythm." : `No workout is scheduled today. Your next planned session is ${week.nextTrainingDay.day}.`} action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
+    <PageHeader eyebrow={friendlyDate().toUpperCase()} title="How are you doing today?" copy="Home is your check-in and advisor. Meals live in Eat; workouts live in Train." action={<button onClick={openProfile} className="avatar-button" aria-label="Profile"><Icon name="user" size={19} /></button>} />
 
     <section className="dashboard-card mb-3">
       <div className="flex items-start justify-between gap-3"><div><p className="card-kicker">10-SECOND CHECK-IN</p><p className="mt-1 text-sm font-semibold">How ready do you feel today?</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">This only changes today unless a longer pattern shows up.</p></div><Icon name="spark" size={18} /></div>
-      <div className="mt-3 grid grid-cols-3 gap-2">{([['low','Running low'],['normal','Normal'],['high','Ready']] as const).map(([value, label]) => <button key={value} onClick={() => setReadiness(value)} className={cx("tiny-button justify-center", readiness === value && "tiny-active")}>{label}</button>)}</div>
+      <div className="mt-3 grid grid-cols-3 gap-2">{([['low','Running low'],['normal','Normal'],['high','Ready']] as const).map(([value, label]) => <button type="button" key={value} onClick={() => setReadiness(value)} className={cx("tiny-button justify-center", readiness === value && "tiny-active")} aria-pressed={readiness === value}>{label}</button>)}</div>
       {state.todayOverride.note === "Adjusted from today's readiness check-in." && <p className="mt-3 rounded-xl bg-[#ECF3EE] p-3 text-xs leading-5 text-[#526860]">I shortened today’s workout from your check-in. Tomorrow starts fresh.</p>}
     </section>
 
     <section className="hero-card">
-      <div className="flex items-center justify-between"><span className="hero-pill">NEXT STEP</span><span className="flex items-center gap-1.5 text-xs font-semibold text-[#68736F]"><Icon name="clock" size={15} />{nextIsWorkout ? workout.minutes : nextMeal?.meal.prepMinutes ?? 10} min</span></div>
-      <h2 className="mt-5 text-[25px] font-semibold leading-tight tracking-[-.03em]">{nextIsWorkout ? `Do ${workout.name}.` : `Make ${nextMeal?.meal.name}.`}</h2>
-      <p className="mt-2 text-[15px] leading-6 text-[#5E6C68]">{nextIsWorkout ? workout.note : nextMeal?.meal.why}</p>
-      <div className="mt-5 flex gap-2"><button onClick={nextIsWorkout ? onStartWorkout : () => nextMeal && onMeal(nextMeal.meal.id)} className="start-primary flex-1">{nextIsWorkout ? "Start workout" : "View meal"}<Icon name="arrow" size={17} /></button><button onClick={() => setTab("coach")} className="icon-button" aria-label="Make this easier"><Icon name="coach" size={20} /></button></div>
+      <span className="hero-pill">TODAY’S ADVISOR</span>
+      <h2 className="mt-5 text-[25px] font-semibold leading-tight tracking-[-.03em]">{advisorTitle}</h2>
+      <p className="mt-2 text-[15px] leading-6 text-[#5E6C68]">{advisorCopy}</p>
+      <button type="button" onClick={() => setTab("coach")} className="start-primary mt-5 w-full">Ask the advisor anything <Icon name="arrow" size={17} /></button>
     </section>
-
-    <TrainingWeekStrip week={week} />
-
-    <section className="dashboard-card mt-3">
-      <div className="flex items-center justify-between"><div><div className="card-kicker">FOOD TODAY</div><p className="mt-1 text-sm text-[#68736F]">{state.eatenMealIds.length + externalFoods.length} logged · {proteinLogged}g protein so far</p></div><button onClick={() => setTab("eat")} className="text-link">See all</button></div>
-      <div className="mt-4 space-y-2">{meals.slice(0, 3).map((item) => <TodayMealRow key={item.sourceMealId} item={item} eaten={state.eatenMealIds.includes(item.meal.id)} onOpen={() => onMeal(item.meal.id)} onSwap={() => onSwap(item.sourceMealId)} />)}</div>
-    </section>
-
-    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Protein" value={`${proteinLogged} / ${targets.proteinGrams}g`} /><MiniCard label="Weekly rhythm" value={`${week.completedScheduled} / ${week.scheduledCount} planned`} /></div>
 
     {ongoingAdaptation && <section className="mt-3 rounded-[24px] bg-[#ECF3EE] p-4"><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="spark" size={20} /></span><div className="flex-1"><p className="text-sm font-semibold">Your plan noticed a pattern</p><p className="mt-1 text-sm leading-5 text-[#596963]">{ongoingAdaptation.reason}</p><button onClick={() => applyAdaptation(ongoingAdaptation)} className="soft-button mt-3">Apply: {ongoingAdaptation.title}</button></div></div></section>}
-
-    {state.detailLevel !== "simple" && <section className="dashboard-card mt-3"><div className="flex items-center justify-between"><div><div className="card-kicker">STARTING TARGET</div><p className="mt-2 text-xl font-semibold">{state.hideCalories ? "Calories hidden" : `${targets.calories.toLocaleString()} cal`}</p><p className="mt-1 text-xs text-[#818A87]">Maintenance estimate: {targets.maintenanceCalories.toLocaleString()}</p></div><button onClick={() => setTab("coach")} className="soft-button">Adjust</button></div></section>}
-
-    <section className="mt-3 rounded-[24px] bg-[#EAE6F5] p-4"><div className="flex gap-3"><span className="mt-0.5 text-[#655F7D]"><Icon name="coach" size={20} /></span><button onClick={() => setTab("coach")} className="text-left"><p className="text-sm font-semibold">Something does not fit?</p><p className="mt-1 text-sm leading-5 text-[#64656B]">Tell Coach in normal words: “I only have 20 minutes today.”</p></button></div></section>
   </div>;
 }
 
-function EatView({ state, targets, meals, patch, onMeal, onSwap, toggleEaten, updatePortion, rejectMeal, removeExternalFood, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; patch: (update: Partial<AppState>) => void; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; rejectMeal: (mealId: string) => void; removeExternalFood: (id: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
+function EatView({ state, targets, meals, patch, onMeal, onSwap, toggleEaten, updatePortion, optimizeProtein, optimizationNote, clearOptimization, rejectMeal, removeExternalFood, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; patch: (update: Partial<AppState>) => void; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; optimizeProtein: () => void; optimizationNote: string | null; clearOptimization: () => void; rejectMeal: (mealId: string) => void; removeExternalFood: (id: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
   const logged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id));
   const today = state.currentDay || todayKey();
   const externalFoods = state.externalFoodLogs.filter((item) => item.date === today);
   const externalTotals = externalFoodTotals(state, today);
   const caloriesLogged = logged.reduce((sum, item) => sum + item.calories, 0) + externalTotals.calories;
   const proteinLogged = logged.reduce((sum, item) => sum + item.protein, 0) + externalTotals.protein;
-  const refreshMeals = () => patch({ mealRotation: state.mealRotation + 1, swappedMealIds: {} });
+  const plannedCalories = meals.reduce((sum, item) => sum + item.calories, 0);
+  const plannedProtein = meals.reduce((sum, item) => sum + item.protein, 0);
+  const snackAllowance = dailySnackAllowance(targets.calories, state.mealsPerDay);
+  const refreshMeals = () => {
+    clearOptimization();
+    patch({ mealRotation: state.mealRotation + 1, swappedMealIds: {} });
+  };
   return <div>
     <PageHeader eyebrow="EAT" title="Food you’d actually choose." copy="Ask for specific foods, rotate the day, or swap one meal. Your targets shape portions — they do not lock you into a menu." />
     <section className="nutrition-banner"><div><p className="card-kicker !text-white/55">TODAY</p><p className="mt-2 text-[27px] font-semibold tracking-[-.03em]">{state.hideCalories ? "Calories hidden" : `${caloriesLogged} / ${targets.calories.toLocaleString()}`}</p><p className="mt-1 text-xs text-white/55">{state.hideCalories ? "Focus on meals + protein" : "calories logged"}</p></div><div className="text-right"><p className="text-[27px] font-semibold">{proteinLogged}g</p><p className="mt-1 text-xs text-white/55">of {targets.proteinGrams}g protein</p></div></section>
+
+    <section className="dashboard-card mt-3">
+      <div className="flex items-start justify-between gap-3"><div><p className="card-kicker">PLAN BALANCE</p><p className="mt-1 text-sm font-semibold">{plannedProtein}g of {targets.proteinGrams}g protein planned</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">{snackAllowance > 0 ? state.hideCalories ? "Flexible snack space is reserved outside your main meals." : `Main meals use about ${plannedCalories} calories. At least ${snackAllowance} stays flexible for snacks, drinks, or extras.` : "Your selected meal count already includes a planned snack inside today’s target."}</p></div><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#ECF3EE] text-[#17483F]"><Icon name="check" size={17} /></span></div>
+      <button type="button" onClick={optimizeProtein} className="start-primary mt-4 w-full !min-h-12 text-sm"><Icon name="check" size={16} /> Optimize remaining meals for protein</button>
+      <p className="mt-2 text-[11px] leading-5 text-[#7D8582]">Keeps custom and already-logged meals fixed, then adjusts only the portions still ahead.</p>
+      {optimizationNote && <p className="mt-3 rounded-xl bg-[#ECF3EE] px-3 py-2.5 text-xs leading-5 text-[#4F685F]">{optimizationNote}</p>}
+    </section>
 
     {externalFoods.length > 0 && <section className="dashboard-card mt-3"><div><p className="card-kicker">ADDED BY COACH</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">One-day food logs count toward today without rewriting your meal plan.</p></div><div className="mt-3 space-y-2">{externalFoods.map((item) => <div key={item.id} className="external-food-row"><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.name}</p><p className="mt-1 text-xs text-[#7B8581]">{item.protein}g protein{state.hideCalories ? "" : ` · ${item.calories} cal`} · {item.sourceLabel}</p>{item.source === "estimated" && item.calorieRange && item.proteinRange && <p className="mt-1 text-[11px] leading-4 text-[#8A938F]">Estimated range: {item.calorieRange.min}–{item.calorieRange.max} cal · {item.proteinRange.min}–{item.proteinRange.max}g protein</p>}</div><button type="button" onClick={() => removeExternalFood(item.id)} className="tiny-button shrink-0">Remove</button></div>)}</div></section>}
 
@@ -827,7 +848,7 @@ function EatView({ state, targets, meals, patch, onMeal, onSwap, toggleEaten, up
     </section>
 
     <div className="mt-5 flex items-center justify-between"><p className="section-label">YOUR DAY</p><button onClick={() => setShowPrep(!showPrep)} className="soft-button"><Icon name="grocery" size={15} /> Prep</button></div>
-    <div className="mt-3 space-y-3">{meals.map((item, index) => <article key={`${item.slot}-${item.meal.id}`} className="meal-card"><button onClick={() => onMeal(item.meal.id)} className={cx("meal-art", index % 4 === 0 ? "meal-butter" : index % 4 === 1 ? "meal-peach" : index % 4 === 2 ? "meal-blue" : "meal-sage")} aria-label={`Open ${item.meal.name}`}>{item.meal.type.charAt(0)}</button><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[#89918E]">{item.slot}</p><span className="portion-pill">{item.portion}</span></div><button onClick={() => onMeal(item.meal.id)} className="mt-1 block text-left font-semibold leading-5">{item.meal.name}</button><p className="mt-1 text-[13px] text-[#68736F]">{item.protein}g protein · {item.meal.prepMinutes} min{state.hideCalories ? "" : ` · ${item.calories} cal`}</p><p className="mt-2 text-xs leading-5 text-[#7D8682]">{item.meal.why}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => toggleEaten(item.meal.id)} className={cx("tiny-button", state.eatenMealIds.includes(item.meal.id) && "tiny-active")}><Icon name="check" size={13} />{state.eatenMealIds.includes(item.meal.id) ? "Logged" : "I ate this"}</button><button onClick={() => onSwap(item.sourceMealId)} className="tiny-button"><Icon name="swap" size={13} />Swap</button><button onClick={() => rejectMeal(item.meal.id)} className="tiny-button">Not for me</button></div><div className="mt-3"><MealPortionControl value={item.portion} onChange={(portion) => updatePortion(item.sourceMealId, portion)} /></div></div></article>)}</div>
+    <div className="mt-3 space-y-3">{meals.map((item, index) => { const isCustom = state.customMeals.some((meal) => meal.id === item.meal.id); return <article key={`${item.slot}-${item.meal.id}`} className="meal-card"><button onClick={() => onMeal(item.meal.id)} className={cx("meal-art", index % 4 === 0 ? "meal-butter" : index % 4 === 1 ? "meal-peach" : index % 4 === 2 ? "meal-blue" : "meal-sage")} aria-label={`Open ${item.meal.name}`}>{item.meal.type.charAt(0)}</button><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-[.12em] text-[#89918E]">{item.slot}</p><span className="portion-pill">{isCustom ? "your amount" : item.portion}</span></div><button onClick={() => onMeal(item.meal.id)} className="mt-1 block text-left font-semibold leading-5">{item.meal.name}</button><p className="mt-1 text-[13px] text-[#68736F]">{item.protein}g protein · {item.meal.prepMinutes} min{state.hideCalories ? "" : ` · ${item.calories} cal`}</p><p className="mt-2 text-xs leading-5 text-[#7D8682]">{item.meal.why}</p><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => toggleEaten(item.meal.id)} className={cx("tiny-button", state.eatenMealIds.includes(item.meal.id) && "tiny-active")}><Icon name="check" size={13} />{state.eatenMealIds.includes(item.meal.id) ? "Logged" : "I ate this"}</button><button onClick={() => onSwap(item.sourceMealId)} className="tiny-button"><Icon name="swap" size={13} />Swap</button><button onClick={() => rejectMeal(item.meal.id)} className="tiny-button">Not for me</button></div><div className="mt-3">{isCustom ? <p className="rounded-xl bg-[#ECF3EE] px-3 py-2 text-[11px] leading-5 text-[#5D716A]">Your custom quantity stays exact. Protein optimization changes the other meals.</p> : <MealPortionControl value={item.portion} onChange={(portion) => updatePortion(item.sourceMealId, portion)} />}</div></div></article>; })}</div>
 
     {showPrep && <PrepCard meals={meals} />}
   </div>;
@@ -1043,7 +1064,7 @@ function BottomSheet({ close, title, children }: { close: () => void; title: str
 
 function BottomNav({ tab, setTab }: { tab: AppTab; setTab: (tab: AppTab) => void }) {
   const items: Array<{ id: AppTab; label: string; icon: IconName }> = [
-    { id: "today", label: "Today", icon: "home" }, { id: "eat", label: "Eat", icon: "eat" }, { id: "train", label: "Train", icon: "train" }, { id: "progress", label: "Progress", icon: "progress" }, { id: "coach", label: "Coach", icon: "coach" },
+    { id: "eat", label: "Eat", icon: "eat" }, { id: "train", label: "Train", icon: "train" }, { id: "today", label: "Home", icon: "home" }, { id: "progress", label: "Progress", icon: "progress" }, { id: "coach", label: "Coach", icon: "coach" },
   ];
-  return <nav className="bottom-nav">{items.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={cx("nav-item", tab === item.id && "nav-active")}><Icon name={item.icon} size={20} /><small>{item.label}</small></button>)}</nav>;
+  return <nav className="bottom-nav" aria-label="Primary navigation">{items.map((item) => <button type="button" key={item.id} onClick={() => setTab(item.id)} className={cx("nav-item", item.id === "today" && "nav-home", tab === item.id && "nav-active")} aria-current={tab === item.id ? "page" : undefined}><Icon name={item.icon} size={item.id === "today" ? 21 : 20} /><small>{item.label}</small></button>)}</nav>;
 }

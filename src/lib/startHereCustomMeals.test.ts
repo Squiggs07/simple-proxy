@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { learnedBehaviorSignals } from "@/lib/startHereBehavior";
 import { rememberCustomMeal } from "@/lib/startHereCustomMeals";
 import { INITIAL_STATE } from "@/lib/startHereModels";
-import { buildDayMeals, buildEffectiveDayMeals, rankMeals } from "@/lib/startHerePlan";
+import { buildDayMeals, buildEffectiveDayMeals, optimizeRemainingMealProtein, plannedMealCalorieBudget, rankMeals } from "@/lib/startHerePlan";
 
 const oikosEstimate = {
   name: "3 Oikos Triple Zero yogurts",
@@ -51,8 +51,36 @@ describe("custom meal memory", () => {
     const effective = buildEffectiveDayMeals(state, 2200, 160).find((item) => item.sourceMealId === breakfast.sourceMealId);
 
     expect(effective?.meal.name).toBe("3 Oikos Triple Zero yogurts");
-    expect(effective?.calories).toBeGreaterThan(0);
-    expect(effective?.protein).toBeGreaterThan(0);
+    expect(effective?.calories).toBe(270);
+    expect(effective?.protein).toBe(45);
+  });
+
+  it("rebalances the other meals toward protein while preserving snack space", () => {
+    const lowProteinEstimate = { ...oikosEstimate, name: "My custom breakfast", calories: 420, protein: 12 };
+    const remembered = rememberCustomMeal(
+      INITIAL_STATE,
+      lowProteinEstimate,
+      "my custom breakfast",
+      "Breakfast",
+      true,
+      "2026-08-20T12:00:00.000Z",
+    );
+    const breakfast = buildDayMeals(INITIAL_STATE, 2200, 160).find((item) => item.meal.type === "Breakfast")!;
+    const state = {
+      ...INITIAL_STATE,
+      currentDay: "2026-08-20",
+      customMeals: remembered.customMeals,
+      swappedMealIds: { [breakfast.sourceMealId]: remembered.meal.id },
+    };
+    const before = buildEffectiveDayMeals(state, 2200, 160);
+    const optimized = optimizeRemainingMealProtein(state, 2200, 160);
+    const after = buildEffectiveDayMeals({ ...state, mealPortionOverrides: optimized.portionOverrides }, 2200, 160);
+    const beforeGap = Math.abs(160 - before.reduce((sum, item) => sum + item.protein, 0));
+    const afterGap = Math.abs(160 - after.reduce((sum, item) => sum + item.protein, 0));
+
+    expect(afterGap).toBeLessThanOrEqual(beforeGap);
+    expect(after.reduce((sum, item) => sum + item.calories, 0)).toBeLessThanOrEqual(plannedMealCalorieBudget(state, 2200));
+    expect(after.find((item) => item.meal.id === remembered.meal.id)?.protein).toBe(12);
   });
 
   it("updates durable memory when the same personal meal is chosen again", () => {

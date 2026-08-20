@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTrainingWeek, defaultTrainingDays, normalizePreferredDays, observedTrainingPattern, workoutIdentity } from "@/lib/startHereWeek";
+import { buildTrainingWeek, defaultTrainingDays, normalizePreferredDays, observedTrainingPattern, togglePreferredDaySelection, workoutIdentity } from "@/lib/startHereWeek";
 import { INITIAL_STATE, type AppState } from "@/lib/startHereModels";
 
 function state(overrides: Partial<AppState> = {}): AppState {
@@ -24,6 +24,15 @@ describe("weekly training planner", () => {
   it("normalizes stale preferred days to the current training frequency", () => {
     expect(normalizePreferredDays(["Mon", "Wed", "Fri"], 2)).toHaveLength(2);
     expect(normalizePreferredDays(["Mon"], 3)).toEqual(["Mon", "Wed", "Fri"]);
+  });
+
+  it("lets someone remove a preset day before choosing its replacement", () => {
+    const preset = defaultTrainingDays(5);
+    const withoutSaturday = togglePreferredDaySelection(preset, "Sat", 5);
+    const withSunday = togglePreferredDaySelection(withoutSaturday, "Sun", 5);
+
+    expect(withoutSaturday).toEqual(["Mon", "Tue", "Wed", "Fri"]);
+    expect(withSunday).toEqual(["Mon", "Tue", "Wed", "Fri", "Sun"]);
   });
 
   it("alternates full-body A and B across a three-day week", () => {

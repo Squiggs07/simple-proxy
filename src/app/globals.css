@@ -290,6 +290,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .nav-item { display: flex; min-width: 62px; min-height: 57px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 16px; background: transparent; color: #89918e; cursor: pointer; }
 .nav-item small { font-size: 9px; font-weight: 760; }
 .nav-active { color: var(--green); background: #edf3ef; }
+.nav-home { min-width: 64px; min-height: 64px; transform: translateY(-7px); border: 1px solid #d9e4de; border-radius: 22px; background: #fff; box-shadow: 0 8px 22px rgba(31,58,49,.12); color: #61716b; }
+.nav-home.nav-active { border-color: #9bb4a9; background: var(--green); color: #fff; }
 
 @media (min-width: 700px) {
   body { background: #f1eee7; }

@@ -87,9 +87,22 @@ export function defaultTrainingDays(count: number): Weekday[] {
   return presets[clamped];
 }
 
+export function preferredDaySelection(days: string[]): Weekday[] {
+  return [...new Set(days.filter((day): day is Weekday => WEEKDAYS.includes(day as Weekday)))]
+    .sort((a, b) => WEEKDAYS.indexOf(a) - WEEKDAYS.indexOf(b));
+}
+
+export function togglePreferredDaySelection(days: string[], day: Weekday, trainingDays: number): Weekday[] {
+  const target = Math.max(1, Math.min(6, Math.round(trainingDays)));
+  const selected = preferredDaySelection(days);
+  if (selected.includes(day)) return selected.filter((item) => item !== day);
+  if (selected.length >= target) return selected;
+  return [...selected, day].sort((a, b) => WEEKDAYS.indexOf(a) - WEEKDAYS.indexOf(b));
+}
+
 export function normalizePreferredDays(days: string[], trainingDays: number): Weekday[] {
   const target = Math.max(1, Math.min(6, Math.round(trainingDays)));
-  const valid = [...new Set(days.filter((day): day is Weekday => WEEKDAYS.includes(day as Weekday)))];
+  const valid = preferredDaySelection(days);
   const defaults = defaultTrainingDays(target);
   const filled = [...valid];
   for (const day of defaults) {

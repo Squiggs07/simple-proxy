@@ -48,6 +48,26 @@ export interface WorkoutBuildOptions {
   name?: string;
 }
 
+const PORTION_FACTORS: Record<MealPortion, number> = {
+  smaller: 0.82,
+  standard: 1,
+  larger: 1.18,
+};
+
+export function dailySnackAllowance(calorieTarget: number, mealsPerDay: number) {
+  if (mealsPerDay >= 4) return 0;
+  const allowance = Math.round((calorieTarget * 0.15) / 10) * 10;
+  return Math.max(180, Math.min(400, allowance));
+}
+
+export function plannedMealCalorieBudget(state: AppState, calorieTarget: number) {
+  return Math.max(600, calorieTarget - dailySnackAllowance(calorieTarget, state.mealsPerDay));
+}
+
+function portionFactor(portion: MealPortion) {
+  return PORTION_FACTORS[portion];
+}
+
 function includesLoose(items: string[], candidate: string) {
   const normalized = candidate.toLowerCase();
   return items.some((item) => normalized.includes(item.toLowerCase()) || item.toLowerCase().includes(normalized));
@@ -191,15 +211,20 @@ export function buildDayMeals(state: AppState, calorieTarget: number, proteinTar
 
   const baseCalories = selected.reduce((sum, meal) => sum + mealMacros(meal).calories, 0);
   const baseProtein = selected.reduce((sum, meal) => sum + mealMacros(meal).protein, 0);
-  const calorieRatio = baseCalories ? calorieTarget / baseCalories : 1;
-  const proteinRatio = baseProtein ? proteinTarget / baseProtein : 1;
-  const ratio = Math.max(0.82, Math.min(1.18, Math.max(calorieRatio, proteinRatio * 0.9)));
-  const automaticPortion: MealPortion = ratio < 0.93 ? "smaller" : ratio > 1.07 ? "larger" : "standard";
+  const mealBudget = plannedMealCalorieBudget(state, calorieTarget);
+  const automaticPortion = (["smaller", "standard", "larger"] as MealPortion[]).reduce((best, option) => {
+    const optionCalories = Math.abs(baseCalories * portionFactor(option) - mealBudget);
+    const bestCalories = Math.abs(baseCalories * portionFactor(best) - mealBudget);
+    if (optionCalories !== bestCalories) return optionCalories < bestCalories ? option : best;
+    const optionProtein = Math.abs(baseProtein * portionFactor(option) - proteinTarget);
+    const bestProtein = Math.abs(baseProtein * portionFactor(best) - proteinTarget);
+    return optionProtein < bestProtein ? option : best;
+  }, "standard");
 
   return selected.map((meal, index) => {
     const macro = mealMacros(meal);
     const portion = state.mealPortionOverrides[meal.id] ?? automaticPortion;
-    const factor = portion === "smaller" ? 0.88 : portion === "larger" ? 1.12 : 1;
+    const factor = portionFactor(portion);
     return {
       slot: index === 0 && meal.type !== "Breakfast" ? "Meal 1" : meal.type,
       sourceMealId: meal.id,
@@ -219,14 +244,77 @@ export function buildEffectiveDayMeals(state: AppState, calorieTarget: number, p
       : undefined;
     if (!replacement || !isMealAllowed(replacement, state)) return item;
     const macro = mealMacros(replacement);
-    const factor = item.portion === "smaller" ? 0.88 : item.portion === "larger" ? 1.12 : 1;
+    const isCustom = state.customMeals.some((meal) => meal.id === replacement.id);
+    const portion = isCustom ? "standard" : item.portion;
+    const factor = isCustom ? 1 : portionFactor(portion);
     return {
       ...item,
       meal: replacement,
       calories: Math.round(macro.calories * factor),
       protein: Math.round(macro.protein * factor),
+      portion,
     };
   });
+}
+
+export interface ProteinOptimizationResult {
+  portionOverrides: Record<string, MealPortion>;
+  plannedCalories: number;
+  plannedProtein: number;
+  snackAllowanceCalories: number;
+}
+
+export function optimizeRemainingMealProtein(state: AppState, calorieTarget: number, proteinTarget: number): ProteinOptimizationResult {
+  const current = buildEffectiveDayMeals(state, calorieTarget, proteinTarget);
+  const budget = plannedMealCalorieBudget(state, calorieTarget);
+  const adjustable = current.filter((item) =>
+    !state.eatenMealIds.includes(item.meal.id)
+    && !state.customMeals.some((meal) => meal.id === item.meal.id),
+  );
+  const adjustableIds = new Set(adjustable.map((item) => item.sourceMealId));
+  const fixed = current.filter((item) => !adjustableIds.has(item.sourceMealId));
+  const fixedCalories = fixed.reduce((sum, item) => sum + item.calories, 0);
+  const fixedProtein = fixed.reduce((sum, item) => sum + item.protein, 0);
+  const combinations: Array<{ portions: MealPortion[]; calories: number; protein: number }> = [];
+  const portions: MealPortion[] = ["smaller", "standard", "larger"];
+
+  function visit(index: number, chosen: MealPortion[], calories: number, protein: number) {
+    if (index === adjustable.length) {
+      combinations.push({ portions: chosen, calories: fixedCalories + calories, protein: fixedProtein + protein });
+      return;
+    }
+    const macro = mealMacros(adjustable[index].meal);
+    for (const portion of portions) {
+      const factor = portionFactor(portion);
+      visit(index + 1, [...chosen, portion], calories + Math.round(macro.calories * factor), protein + Math.round(macro.protein * factor));
+    }
+  }
+
+  visit(0, [], 0, 0);
+  const withinBudget = combinations.filter((item) => item.calories <= budget);
+  const pool = withinBudget.length ? withinBudget : combinations;
+  const best = pool.sort((a, b) => {
+    const proteinDifference = Math.abs(a.protein - proteinTarget) - Math.abs(b.protein - proteinTarget);
+    if (proteinDifference !== 0) return proteinDifference;
+    const calorieDifference = Math.abs(a.calories - budget) - Math.abs(b.calories - budget);
+    if (calorieDifference !== 0) return calorieDifference;
+    return b.protein - a.protein;
+  })[0] ?? {
+    portions: [],
+    calories: current.reduce((sum, item) => sum + item.calories, 0),
+    protein: current.reduce((sum, item) => sum + item.protein, 0),
+  };
+  const portionOverrides = { ...state.mealPortionOverrides };
+  adjustable.forEach((item, index) => {
+    portionOverrides[item.sourceMealId] = best.portions[index] ?? item.portion;
+  });
+
+  return {
+    portionOverrides,
+    plannedCalories: best.calories,
+    plannedProtein: best.protein,
+    snackAllowanceCalories: dailySnackAllowance(calorieTarget, state.mealsPerDay),
+  };
 }
 
 function equipmentMatches(exercise: Exercise, equipment: Equipment) {

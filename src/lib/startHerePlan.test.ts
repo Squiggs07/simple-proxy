@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { INITIAL_STATE } from "@/lib/startHereModels";
-import { buildDayMeals, buildEffectiveDayMeals, buildWorkout, mealFamilyKey, rankMeals } from "@/lib/startHerePlan";
+import { buildDayMeals, buildEffectiveDayMeals, buildWorkout, dailySnackAllowance, mealFamilyKey, plannedMealCalorieBudget, rankMeals } from "@/lib/startHerePlan";
 
 describe("Start Here planning", () => {
   it("mechanically removes allergy matches", () => {
@@ -44,6 +44,12 @@ describe("Start Here planning", () => {
     const larger = buildDayMeals(largerState, 2200, 160).find((item) => item.sourceMealId === first.sourceMealId);
     expect(larger?.portion).toBe("larger");
     expect(larger?.calories ?? 0).toBeGreaterThan(first.portion === "larger" ? 0 : first.calories);
+  });
+
+  it("reserves flexible snack calories when the plan contains only main meals", () => {
+    expect(dailySnackAllowance(2200, 3)).toBe(330);
+    expect(plannedMealCalorieBudget(INITIAL_STATE, 2200)).toBe(1870);
+    expect(dailySnackAllowance(2200, 4)).toBe(0);
   });
 
   it("applies a saved meal swap before Coach receives today's audited plan", () => {
