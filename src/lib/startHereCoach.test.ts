@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interpretCoachRequest } from "@/lib/startHereCoach";
+import { applyCoachFoodLog, interpretCoachRequest } from "@/lib/startHereCoach";
 import { buildDayMeals, currentTargets } from "@/lib/startHerePlan";
 import { INITIAL_STATE } from "@/lib/startHereModels";
 
@@ -88,5 +88,77 @@ describe("Start Here Coach action layer", () => {
     expect(Object.keys(result.patch)).toHaveLength(0);
     expect(result.reply.toLowerCase()).toContain("carbs");
     expect(result.reply.toLowerCase()).toContain("protein");
+  });
+
+  it("logs a verified restaurant item for today without changing ongoing targets", () => {
+    const state = { ...INITIAL_STATE, currentDay: "2026-08-20", externalFoodLogs: [] };
+    const result = interpretCoachRequest("I just ate a large fry from Chick-fil-A. Add that into my daily macros.", state);
+    const log = result.patch.externalFoodLogs?.[0];
+
+    expect(log).toMatchObject({
+      date: "2026-08-20",
+      name: "Large Chick-fil-A Waffle Potato Fries",
+      calories: 600,
+      protein: 7,
+      source: "verified",
+    });
+    expect(result.patch.calorieOverride).toBeUndefined();
+    expect(result.patch.proteinOverride).toBeUndefined();
+    expect(result.reply.toLowerCase()).toContain("logged");
+  });
+
+  it("uses recent conversation when the user clarifies that a food log is just for today", () => {
+    const state = {
+      ...INITIAL_STATE,
+      currentDay: "2026-08-20",
+      externalFoodLogs: [],
+      coachHistory: [
+        ...INITIAL_STATE.coachHistory,
+        { id: "food-request", role: "user" as const, text: "I ate a large Chick-fil-A fry. Can you add it to my macros?", createdAt: "2026-08-20T18:00:00.000Z" },
+      ],
+    };
+    const result = interpretCoachRequest("just today", state);
+
+    expect(result.patch.externalFoodLogs?.[0]?.catalogId).toBe("chick-fil-a-large-waffle-fries");
+    expect(result.patch.calorieOverride).toBeUndefined();
+  });
+
+  it("logs an uncatalogued food only from nutrition numbers the user supplied", () => {
+    const state = { ...INITIAL_STATE, currentDay: "2026-08-20", externalFoodLogs: [] };
+    const result = interpretCoachRequest("log food today: restaurant chicken bowl | 620 cal | 42g protein", state);
+
+    expect(result.patch.externalFoodLogs?.[0]).toMatchObject({
+      name: "restaurant chicken bowl",
+      calories: 620,
+      protein: 42,
+      source: "user",
+    });
+  });
+
+  it("can log an arbitrary meal estimate without changing the ongoing plan", () => {
+    const state = { ...INITIAL_STATE, currentDay: "2026-08-20", externalFoodLogs: [] };
+    const result = applyCoachFoodLog({
+      name: "Chicken burrito bowl with rice, beans, cheese, and guacamole",
+      calories: 850,
+      protein: 48,
+      source: "estimated",
+      sourceLabel: "Coach estimate — adjust or remove anytime",
+      catalogId: null,
+      calorieRange: { min: 700, max: 1000 },
+      proteinRange: { min: 38, max: 58 },
+    }, state);
+
+    expect(result.patch.externalFoodLogs?.[0]).toMatchObject({
+      date: "2026-08-20",
+      name: "Chicken burrito bowl with rice, beans, cheese, and guacamole",
+      calories: 850,
+      protein: 48,
+      source: "estimated",
+      calorieRange: { min: 700, max: 1000 },
+    });
+    expect(result.patch.calorieOverride).toBeUndefined();
+    expect(result.patch.proteinOverride).toBeUndefined();
+    expect(result.reply).toContain("Coach estimate");
+    expect(result.reply).toContain("ongoing targets and future plan did not change");
   });
 });

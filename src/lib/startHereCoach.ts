@@ -1,7 +1,9 @@
 import { calculateTargets, validateCalorieTarget, validateProteinTarget } from "@/lib/startHereEngine";
-import { buildDayMeals, currentTargets } from "@/lib/startHerePlan";
+import { buildDayMeals, buildEffectiveDayMeals, currentTargets } from "@/lib/startHerePlan";
 import { answerGeneralCoachQuestion } from "@/lib/startHereCoachKnowledge";
-import type { AppState, Equipment } from "@/lib/startHereModels";
+import { buildCoachFoodLog, buildVerifiedFoodLog, externalFoodTotals, verifiedFoodById, verifiedFoodFromText } from "@/lib/startHereFoodLog";
+import type { CoachFoodLogAction } from "@/lib/startHereFoodLog";
+import type { AppState, Equipment, ExternalFoodLog } from "@/lib/startHereModels";
 import { defaultTrainingDays, mondayOf } from "@/lib/startHereWeek";
 import { interpretWeekScheduleRequest } from "@/lib/startHereWeekCoach";
 
@@ -76,6 +78,87 @@ function detectDirectGoal(text: string): AppState["goal"] | null {
   return null;
 }
 
+function currentDate(state: AppState) {
+  return state.currentDay || new Date().toISOString().slice(0, 10);
+}
+
+function appendFoodLog(state: AppState, foodLog: ExternalFoodLog): CoachActionResult {
+  const targets = currentTargets(state);
+  const planned = buildEffectiveDayMeals(state, targets.calories, targets.proteinGrams)
+    .filter((meal) => state.eatenMealIds.includes(meal.meal.id))
+    .reduce((totals, meal) => ({ calories: totals.calories + meal.calories, protein: totals.protein + meal.protein }), { calories: 0, protein: 0 });
+  const external = externalFoodTotals(state, foodLog.date);
+  const remainingCalories = Math.max(0, targets.calories - planned.calories - external.calories - foodLog.calories);
+  const remainingProtein = Math.max(0, targets.proteinGrams - planned.protein - external.protein - foodLog.protein);
+
+  const estimateNote = foodLog.source === "estimated" && foodLog.calorieRange && foodLog.proteinRange
+    ? ` This is a Coach estimate (roughly ${foodLog.calorieRange.min}–${foodLog.calorieRange.max} calories and ${foodLog.proteinRange.min}–${foodLog.proteinRange.max}g protein), so you can remove it if the portion was different.`
+    : "";
+
+  return {
+    patch: { externalFoodLogs: [...state.externalFoodLogs, foodLog] },
+    reply: `Logged ${foodLog.name} for today: ${foodLog.calories} calories and ${foodLog.protein}g protein.${estimateNote} That leaves about ${remainingCalories} calories and ${remainingProtein}g protein based on everything logged so far. Your ongoing targets and future plan did not change.`,
+    changeSummary: `Today +${foodLog.calories} cal · +${foodLog.protein}g protein`,
+  };
+}
+
+export function applyCoachFoodLog(action: CoachFoodLogAction, state: AppState): CoachActionResult {
+  return appendFoodLog(state, buildCoachFoodLog(state, action, currentDate(state)));
+}
+
+function verifiedFoodLogAction(raw: string, state: AppState): CoachActionResult | null {
+  const text = raw.trim().toLowerCase();
+  const supplied = raw.match(/^log food today:\s*(.+?)\s*\|\s*(\d{1,4})\s*cal(?:ories)?\s*\|\s*(\d{1,3})\s*g?\s*protein$/i);
+  if (supplied) {
+    const date = currentDate(state);
+    const calories = Number(supplied[2]);
+    const protein = Number(supplied[3]);
+    if (calories <= 5000 && protein <= 500) {
+      return appendFoodLog(state, {
+        id: `external-${date}-user-${state.externalFoodLogs.length + 1}`,
+        date,
+        name: supplied[1].trim(),
+        calories,
+        protein,
+        source: "user",
+        sourceLabel: "Nutrition you provided",
+        catalogId: null,
+        calorieRange: null,
+        proteinRange: null,
+      });
+    }
+  }
+
+  const canonical = text.match(/^log verified food ([a-z0-9-]+) today$/);
+  let item = canonical ? verifiedFoodById(canonical[1]) : null;
+
+  const directFoodLog = /\b(?:ate|had|log|track|add)\b/.test(text)
+    && /\b(?:macro|calorie|protein|food|fries?|ate|had|today)\b/.test(text);
+  if (!item && directFoodLog) item = verifiedFoodFromText(raw);
+
+  const todayFollowUp = /^(?:just|only)(?: for)? today[.!]?$/i.test(raw.trim()) || /^today only[.!]?$/i.test(raw.trim());
+  if (!item && todayFollowUp) {
+    const priorRequest = [...state.coachHistory]
+      .reverse()
+      .find((message) => message.role === "user" && /\b(?:ate|had|log|track|add|macro)\b/i.test(message.text));
+    if (priorRequest) item = verifiedFoodFromText(priorRequest.text);
+  }
+
+  if (!item) return null;
+
+  const date = currentDate(state);
+  const existing = state.externalFoodLogs.find((log) => log.date === date && log.catalogId === item.id);
+  if (existing && todayFollowUp) {
+    return {
+      patch: {},
+      reply: `${item.name} is already logged for today. Your ongoing targets and future plan are unchanged.`,
+    };
+  }
+
+  const foodLog = buildVerifiedFoodLog(state, item, date);
+  return appendFoodLog(state, foodLog);
+}
+
 export function interpretCoachRequest(raw: string, state: AppState): CoachActionResult {
   const text = raw.trim().toLowerCase();
   const { profile, base, calories, protein } = currentNumbers(state);
@@ -85,6 +168,9 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
   if (!text) {
     return { patch: {}, reply: "Tell me what does not fit. I can change meals, targets, training, or how much detail the app shows." };
   }
+
+  const foodLogAction = verifiedFoodLogAction(raw, state);
+  if (foodLogAction) return foodLogAction;
 
   const weekScheduleAction = interpretWeekScheduleRequest(raw, state);
   if (weekScheduleAction) return weekScheduleAction;
@@ -355,6 +441,14 @@ export function interpretCoachRequest(raw: string, state: AppState): CoachAction
       patch: {},
       reply: "I can fix that without rebuilding everything blindly. What is wrong with the meals: the actual foods, the cuisines, cooking time, cost, or portion size?",
       clarification: "food-preferences",
+    };
+  }
+
+  if (/\b(?:ate|had)\b.*\b(?:add|log|track|macro)/.test(text) || /\b(?:add|log|track)\b.*\b(?:food|meal|macro)/.test(text)) {
+    return {
+      patch: {},
+      reply: "I can log that for today without changing your plan. I just need the official calories and protein for the exact item or order so I do not invent nutrition data.",
+      clarification: "food-log-nutrition",
     };
   }
 

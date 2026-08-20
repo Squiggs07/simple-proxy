@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { verifiedFoodById } from "@/lib/startHereFoodLog";
 import { rateLimit } from "@/lib/rate-limit";
 
 const baselineSchema = z.object({
@@ -57,6 +58,20 @@ const requestSchema = z.object({
       protein: z.number().int().nonnegative(),
       logged: z.boolean(),
     })).max(5),
+    todayExternalFoods: z.array(z.object({
+      name: z.string().max(120),
+      calories: z.number().int().nonnegative(),
+      protein: z.number().int().nonnegative(),
+    })).max(20),
+    verifiedFoodCatalog: z.array(z.object({
+      id: z.string().max(100),
+      name: z.string().max(120),
+      calories: z.number().int().nonnegative(),
+      protein: z.number().int().nonnegative(),
+      aliases: z.array(z.string().max(120)).max(12),
+      sourceLabel: z.string().max(120),
+      checkedOn: z.string().max(10),
+    })).max(30),
     loggedCalories: z.number().int().nonnegative(),
     loggedProtein: z.number().int().nonnegative(),
     remainingCalories: z.number().int().nonnegative(),
@@ -68,7 +83,65 @@ const requestSchema = z.object({
 const responseSchema = z.object({
   answer: z.string().trim().min(1).max(5000),
   canonicalCommand: z.string().trim().max(600).nullable(),
+  foodLog: z.object({
+    name: z.string().trim().min(1).max(120),
+    calories: z.number().int().min(0).max(5000),
+    protein: z.number().int().min(0).max(500),
+    basis: z.enum(["catalog", "user_provided", "estimated"]),
+    catalogId: z.string().trim().max(100).nullable(),
+    calorieRange: z.tuple([z.number().int().min(0).max(5000), z.number().int().min(0).max(5000)]).nullable(),
+    proteinRange: z.tuple([z.number().int().min(0).max(500), z.number().int().min(0).max(500)]).nullable(),
+  }).nullable(),
 });
+
+type GeneratedFoodLog = z.infer<typeof responseSchema>["foodLog"];
+
+function orderedRange(range: [number, number] | null, midpoint: number) {
+  if (!range) return { min: midpoint, max: midpoint };
+  return { min: Math.min(range[0], range[1], midpoint), max: Math.max(range[0], range[1], midpoint) };
+}
+
+function userActuallyProvidedNutrition(message: string, history: Array<{ role: "user" | "coach"; text: string }>, food: NonNullable<GeneratedFoodLog>) {
+  const userText = [message, ...history.filter((item) => item.role === "user").map((item) => item.text)].join(" ");
+  const calorieNumber = new RegExp(`\\b${food.calories}\\b[^.]{0,25}\\b(?:cal|calorie|calories|kcal)`, "i");
+  const proteinNumber = new RegExp(`\\b${food.protein}\\s*g?(?:rams?)?\\b[^.]{0,20}\\bprotein`, "i");
+  const proteinFirst = new RegExp(`\\bprotein\\b[^.]{0,20}\\b${food.protein}\\s*g?`, "i");
+  return calorieNumber.test(userText) && (proteinNumber.test(userText) || proteinFirst.test(userText));
+}
+
+function normalizeFoodLog(food: GeneratedFoodLog, message: string, history: Array<{ role: "user" | "coach"; text: string }>) {
+  if (!food) return null;
+
+  if (food.basis === "catalog" && food.catalogId) {
+    const verified = verifiedFoodById(food.catalogId);
+    if (verified) {
+      return {
+        name: verified.name,
+        calories: verified.calories,
+        protein: verified.protein,
+        source: "verified" as const,
+        sourceLabel: verified.sourceLabel,
+        catalogId: verified.id,
+        calorieRange: null,
+        proteinRange: null,
+      };
+    }
+  }
+
+  const userProvided = food.basis === "user_provided" && userActuallyProvidedNutrition(message, history, food);
+  const calorieRange = orderedRange(food.calorieRange, food.calories);
+  const proteinRange = orderedRange(food.proteinRange, food.protein);
+  return {
+    name: food.name,
+    calories: food.calories,
+    protein: food.protein,
+    source: userProvided ? "user" as const : "estimated" as const,
+    sourceLabel: userProvided ? "Nutrition you provided" : "Coach estimate — adjust or remove anytime",
+    catalogId: null,
+    calorieRange: userProvided ? null : calorieRange,
+    proteinRange: userProvided ? null : proteinRange,
+  };
+}
 
 const canonicalExamples = [
   "I want to do a lean bulk and minimize fat gain",
@@ -93,6 +166,8 @@ const canonicalExamples = [
   "make my meals cheaper",
   "keep meal prep under 10 minutes",
   "make lunch smaller",
+  "log verified food chick-fil-a-large-waffle-fries today",
+  "log food today: restaurant chicken bowl | 620 cal | 42g protein",
   "I want to lose fat",
 ];
 
@@ -132,12 +207,16 @@ Schedule scope matters. A request caused by one conflict ("I can't train Friday"
 
 Safety boundaries: do not diagnose conditions, interpret imaging/labs as a diagnosis, prescribe medication, or tell someone to push through concerning symptoms. For pain, injury, dizziness, chest pain, fainting, severe shortness of breath, eating-disorder concerns, pregnancy, or other medical situations, give high-level education and recommend appropriate professional care. If symptoms could be urgent, say so clearly. You may discuss common wellness topics and supplements in general terms, including evidence, tradeoffs, and common dosing ranges, while noting relevant medical cautions.
 
-For nutrition, never invent nutrition data for a food or meal that is not in the app's audited library. For a restaurant order, use exact numbers only when the user supplied them or a verified restaurant-data result is explicitly present in context. Otherwise say that exact current nutrition needs verification, ask for the official nutrition details when helpful, and still explain how to evaluate the order using the user's provided remaining targets. The todayMeals numbers are audited in-app estimates; do not count an unlogged planned meal as already eaten. When referring to the user's current calorie/protein numbers, use only the provided context.
+For nutrition, support open-ended questions about any food, meal, restaurant order, recipe, portion, substitution, or eating situation. Answer hypothetical questions such as “how would this fit?” directly and set foodLog to null. Use reasonable calorie/protein ranges when exact details are unknown, state the assumptions briefly, and never present an estimate as verified.
+
+Only create foodLog when the user clearly says they ate/had the food and asks to add, log, or track it. Food logs are for today by default and must never alter the ongoing plan. For an exact verifiedFoodCatalog match, use basis "catalog" and its catalogId; server code will enforce the catalog values. When the user explicitly gives both calories and protein, use basis "user_provided" and those exact numbers. For any other food or order, use basis "estimated", choose a practical midpoint for calories/protein, and include honest low/high calorieRange and proteinRange values. Name the item naturally and briefly. If the description is too vague to make even a useful estimate (for example, “some food”), ask one concise follow-up and leave foodLog null. A follow-up such as “just today” may resolve a clear food-log request from recent conversation. When foodLog is non-null, canonicalCommand must be null. Explain that an estimated log is an estimate, but do not claim anything was saved before the deterministic action layer confirms it.
+
+The todayMeals numbers are audited in-app estimates; do not count an unlogged planned meal as already eaten. todayExternalFoods are already logged and must not be counted twice. When referring to the user's current calorie/protein numbers, use only the provided context.
 
 Keep normal answers concise. Prefer a direct answer plus the few most useful details instead of a long essay unless the user asks for depth.
 
 Return ONLY JSON with this shape:
-{"answer":"useful response to the user","canonicalCommand":null}
+{"answer":"useful response to the user","canonicalCommand":null,"foodLog":null}
 If an app change is requested, canonicalCommand should be a concise command the deterministic engine can understand. If it is only a question, canonicalCommand must be null.
 
 Examples of supported change-command forms:\n${examples}`,
@@ -145,11 +224,13 @@ Examples of supported change-command forms:\n${examples}`,
     });
 
     const normalized = result.output;
+    const foodLog = normalizeFoodLog(normalized.foodLog, parsed.data.message, parsed.data.history);
 
     return NextResponse.json({
       available: true,
       answer: normalized.answer,
-      canonicalCommand: normalized.canonicalCommand,
+      canonicalCommand: foodLog ? null : normalized.canonicalCommand,
+      foodLog,
       model,
     });
   } catch (error) {

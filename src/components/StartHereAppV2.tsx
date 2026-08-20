@@ -14,8 +14,9 @@ import { buildAdaptationReview, progressionCue, type AdaptationRecommendation } 
 import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
-import { interpretCoachRequest } from "@/lib/startHereCoach";
+import { applyCoachFoodLog, interpretCoachRequest } from "@/lib/startHereCoach";
 import { askCoach } from "@/lib/startHereCoachClient";
+import { externalFoodTotals } from "@/lib/startHereFoodLog";
 import { useStartHereCloud } from "@/lib/useStartHereCloud";
 import {
   alternativeExercises,
@@ -145,7 +146,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v9") ?? localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v10") ?? localStorage.getItem("start-here-state-v9") ?? localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         const merged = saved ? mergeStoredState(JSON.parse(saved)) : INITIAL_STATE;
         const date = todayKey();
         setState(merged.currentDay === date ? merged : {
@@ -165,7 +166,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v9", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v10", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -288,6 +289,10 @@ export function StartHereAppV2() {
     patch({ mealPortionOverrides: { ...state.mealPortionOverrides, [sourceMealId]: portion } });
   }
 
+  function removeExternalFood(id: string) {
+    patch({ externalFoodLogs: state.externalFoodLogs.filter((item) => item.id !== id) });
+  }
+
   function rejectMeal(mealId: string) {
     const swappedMealIds = Object.fromEntries(Object.entries(state.swappedMealIds).filter(([sourceId, replacementId]) => sourceId !== mealId && replacementId !== mealId));
     patch({
@@ -347,7 +352,7 @@ export function StartHereAppV2() {
     try {
       const ai = await askCoach(raw, snapshot, targets);
       const command = ai.canonicalCommand?.trim() || raw;
-      const result = interpretCoachRequest(command, snapshot);
+      const result = ai.foodLog ? applyCoachFoodLog(ai.foodLog, snapshot) : interpretCoachRequest(command, snapshot);
       const changed = Object.keys(result.patch).length > 0;
       if (changed) setUndoSnapshot(snapshot);
 
@@ -433,7 +438,7 @@ export function StartHereAppV2() {
             <TodayView state={state} targets={targets} meals={dayMeals} workout={effectiveWorkout} week={trainingWeek} adaptation={adaptationReview} setReadiness={saveReadiness} applyAdaptation={applyAdaptiveRecommendation} setTab={setTab} onStartWorkout={startWorkout} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} openProfile={() => setShowProfile(true)} />
           )}
           {tab === "eat" && (
-            <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
+            <EatView state={state} targets={targets} meals={dayMeals} patch={patch} onMeal={(id) => setSelectedMealId(id)} onSwap={(id) => setSwapMealId(id)} toggleEaten={toggleMealEaten} updatePortion={updateMealPortion} rejectMeal={rejectMeal} removeExternalFood={removeExternalFood} showPrep={showPrep || state.showPrep} setShowPrep={setShowPrep} />
           )}
           {tab === "train" && (
             <TrainView state={state} workout={effectiveWorkout} week={trainingWeek} startWorkout={startWorkout} setTab={setTab} />
@@ -450,7 +455,7 @@ export function StartHereAppV2() {
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
       {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} cloud={cloud} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} cloud={cloud} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v10"); localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
@@ -470,6 +475,7 @@ interface OnboardingProps {
 
 function Onboarding({ state, step, setStep, patch, toggleArray, targets, building, complete }: OnboardingProps) {
   const totalSteps = 9;
+  const [basicProfileValid, setBasicProfileValid] = useState(() => validBasicProfile(state));
   const back = () => setStep((current) => Math.max(0, current - 1));
   return (
     <div className="min-h-dvh bg-[#F7F4EE] text-[#1D2926]">
@@ -517,8 +523,8 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
         )}
 
         {step === 2 && (
-          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue disabled={!validBasicProfile(state)} onClick={() => setStep(3)} />}>
-            <BasicProfileFields state={state} patch={patch} />
+          <OnboardingSection title="A few basics." copy="Just enough to estimate a useful starting point. You can change these later." footer={<Continue disabled={!basicProfileValid} onClick={() => setStep(3)} />}>
+            <BasicProfileFields key={state.unitSystem} state={state} patch={patch} onValidityChange={setBasicProfileValid} />
           </OnboardingSection>
         )}
 
@@ -696,7 +702,10 @@ function TrainingWeekStrip({ week }: { week: TrainingWeekPlan }) {
 
 function TodayView({ state, targets, meals, workout, week, adaptation, setReadiness, applyAdaptation, setTab, onStartWorkout, onMeal, onSwap, openProfile }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; workout: WorkoutPlan; week: TrainingWeekPlan; adaptation: ReturnType<typeof buildAdaptationReview>; setReadiness: (value: Readiness) => void; applyAdaptation: (recommendation: AdaptationRecommendation) => void; setTab: (tab: AppTab) => void; onStartWorkout: () => void; onMeal: (id: string) => void; onSwap: (id: string) => void; openProfile: () => void }) {
   const completedToday = week.today.trained;
-  const proteinLogged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id)).reduce((sum, item) => sum + item.protein, 0);
+  const today = state.currentDay || todayKey();
+  const externalFoods = state.externalFoodLogs.filter((item) => item.date === today);
+  const externalTotals = externalFoodTotals(state, today);
+  const proteinLogged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id)).reduce((sum, item) => sum + item.protein, 0) + externalTotals.protein;
   const nextMeal = meals.find((item) => !state.eatenMealIds.includes(item.meal.id)) ?? meals[0];
   const overrideActive = Boolean(state.todayOverride.minutes || state.todayOverride.equipment || state.todayOverride.note);
   const workoutDueToday = week.today.scheduled && !week.today.completed;
@@ -722,7 +731,7 @@ function TodayView({ state, targets, meals, workout, week, adaptation, setReadin
     <TrainingWeekStrip week={week} />
 
     <section className="dashboard-card mt-3">
-      <div className="flex items-center justify-between"><div><div className="card-kicker">FOOD TODAY</div><p className="mt-1 text-sm text-[#68736F]">{state.eatenMealIds.length} logged · {proteinLogged}g protein so far</p></div><button onClick={() => setTab("eat")} className="text-link">See all</button></div>
+      <div className="flex items-center justify-between"><div><div className="card-kicker">FOOD TODAY</div><p className="mt-1 text-sm text-[#68736F]">{state.eatenMealIds.length + externalFoods.length} logged · {proteinLogged}g protein so far</p></div><button onClick={() => setTab("eat")} className="text-link">See all</button></div>
       <div className="mt-4 space-y-2">{meals.slice(0, 3).map((item) => <TodayMealRow key={item.sourceMealId} item={item} eaten={state.eatenMealIds.includes(item.meal.id)} onOpen={() => onMeal(item.meal.id)} onSwap={() => onSwap(item.sourceMealId)} />)}</div>
     </section>
 
@@ -736,14 +745,19 @@ function TodayView({ state, targets, meals, workout, week, adaptation, setReadin
   </div>;
 }
 
-function EatView({ state, targets, meals, patch, onMeal, onSwap, toggleEaten, updatePortion, rejectMeal, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; patch: (update: Partial<AppState>) => void; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; rejectMeal: (mealId: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
+function EatView({ state, targets, meals, patch, onMeal, onSwap, toggleEaten, updatePortion, rejectMeal, removeExternalFood, showPrep, setShowPrep }: { state: AppState; targets: ReturnType<typeof currentTargets>; meals: PlannedMeal[]; patch: (update: Partial<AppState>) => void; onMeal: (id: string) => void; onSwap: (id: string) => void; toggleEaten: (id: string) => void; updatePortion: (sourceMealId: string, portion: MealPortion) => void; rejectMeal: (mealId: string) => void; removeExternalFood: (id: string) => void; showPrep: boolean; setShowPrep: (value: boolean) => void }) {
   const logged = meals.filter((item) => state.eatenMealIds.includes(item.meal.id));
-  const caloriesLogged = logged.reduce((sum, item) => sum + item.calories, 0);
-  const proteinLogged = logged.reduce((sum, item) => sum + item.protein, 0);
+  const today = state.currentDay || todayKey();
+  const externalFoods = state.externalFoodLogs.filter((item) => item.date === today);
+  const externalTotals = externalFoodTotals(state, today);
+  const caloriesLogged = logged.reduce((sum, item) => sum + item.calories, 0) + externalTotals.calories;
+  const proteinLogged = logged.reduce((sum, item) => sum + item.protein, 0) + externalTotals.protein;
   const refreshMeals = () => patch({ mealRotation: state.mealRotation + 1, swappedMealIds: {} });
   return <div>
     <PageHeader eyebrow="EAT" title="Food you’d actually choose." copy="Ask for specific foods, rotate the day, or swap one meal. Your targets shape portions — they do not lock you into a menu." />
     <section className="nutrition-banner"><div><p className="card-kicker !text-white/55">TODAY</p><p className="mt-2 text-[27px] font-semibold tracking-[-.03em]">{state.hideCalories ? "Calories hidden" : `${caloriesLogged} / ${targets.calories.toLocaleString()}`}</p><p className="mt-1 text-xs text-white/55">{state.hideCalories ? "Focus on meals + protein" : "calories logged"}</p></div><div className="text-right"><p className="text-[27px] font-semibold">{proteinLogged}g</p><p className="mt-1 text-xs text-white/55">of {targets.proteinGrams}g protein</p></div></section>
+
+    {externalFoods.length > 0 && <section className="dashboard-card mt-3"><div><p className="card-kicker">ADDED BY COACH</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">One-day food logs count toward today without rewriting your meal plan.</p></div><div className="mt-3 space-y-2">{externalFoods.map((item) => <div key={item.id} className="external-food-row"><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.name}</p><p className="mt-1 text-xs text-[#7B8581]">{item.protein}g protein{state.hideCalories ? "" : ` · ${item.calories} cal`} · {item.sourceLabel}</p>{item.source === "estimated" && item.calorieRange && item.proteinRange && <p className="mt-1 text-[11px] leading-4 text-[#8A938F]">Estimated range: {item.calorieRange.min}–{item.calorieRange.max} cal · {item.proteinRange.min}–{item.proteinRange.max}g protein</p>}</div><button type="button" onClick={() => removeExternalFood(item.id)} className="tiny-button shrink-0">Remove</button></div>)}</div></section>}
 
     <section className="dashboard-card mt-3">
       <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">Make the food feel more like you.</p><p className="mt-1 text-xs leading-5 text-[#7D8582]">You are not stuck with the first generated day.</p></div><button onClick={refreshMeals} className="soft-button"><Icon name="swap" size={14} /> Different meals</button></div>
@@ -791,7 +805,7 @@ function ProgressView({ state, review, targets, patch, setTab, openWeightLog, op
     <PageHeader eyebrow="PROGRESS" title="Trust the trend, not one dot." copy="We wait for enough data before suggesting a change." />
     <section className="dashboard-card"><div className="flex items-start justify-between gap-3"><div><p className="card-kicker">YOUR TREND</p><p className="mt-2 text-[30px] font-semibold tracking-[-.035em]">{review.trendNow === null ? "—" : displayWeight(review.trendNow, state.unitSystem)}</p><p className="mt-1 text-sm text-[#68736F]">{review.change === null ? "No trend yet" : `${displayWeightChange(review.change, state.unitSystem)} across the smoothed sample`}</p></div><button onClick={openWeightLog} className="soft-button"><Icon name="plus" size={14} /> Log weight</button></div><TrendChart points={trend} /><p className="mt-3 text-xs leading-5 text-[#7C8582]">Raw readings are light dots. The darker line is the smoothed trend we actually pay attention to.</p></section>
     <section className={cx("mt-3 rounded-[24px] p-4", review.ready ? "bg-[#ECF3EE]" : "bg-[#E7EFF5]")}><div className="flex items-start gap-3"><span className="mt-0.5 text-[#17483F]"><Icon name="target" size={20} /></span><div className="flex-1"><p className="font-semibold">{review.ready ? "Trend review" : "Still learning your trend"}</p><p className="mt-1 text-sm leading-6 text-[#5D6965]">{review.message}</p>{review.suggestedCalorieChange !== 0 && <button onClick={applyReview} className="soft-button mt-3">Apply {review.suggestedCalorieChange > 0 ? "+" : ""}{review.suggestedCalorieChange} calories</button>}</div></div></section>
-    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.mealLogs.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><button onClick={openMonthlySummary} className="coach-inline mt-3"><Icon name="calendar" size={18} /><span><strong>Monthly summary</strong><small>See the useful signals without a score.</small></span><Icon name="chevron" size={16} /></button>
+    <div className="mt-3 grid grid-cols-2 gap-3"><MiniCard label="Training" value={`${workouts} workouts logged`} /><MiniCard label="Food" value={`${state.mealLogs.length + state.externalFoodLogs.length} meals logged`} /><MiniCard label="Trend data" value={`${review.readings} readings`} /><MiniCard label="Current target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div><button onClick={openMonthlySummary} className="coach-inline mt-3"><Icon name="calendar" size={18} /><span><strong>Monthly summary</strong><small>See the useful signals without a score.</small></span><Icon name="chevron" size={16} /></button>
     <button onClick={() => setTab("coach")} className="coach-inline mt-3"><Icon name="coach" size={18} /><span><strong>Want to change the pace?</strong><small>Coach can explain the tradeoff before changing it.</small></span><Icon name="chevron" size={16} /></button>
   </div>;
 }

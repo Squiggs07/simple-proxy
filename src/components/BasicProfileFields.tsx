@@ -1,12 +1,22 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { AppState, UnitSystem } from "@/lib/startHereModels";
 import { cmToFeetInches, feetInchesToCm, kgToLb, lbToKg } from "@/lib/startHereUnits";
 
 interface Props {
   state: AppState;
   patch: (update: Partial<AppState>) => void;
+  onValidityChange?: (valid: boolean) => void;
+}
+
+interface ProfileDrafts {
+  age: string;
+  feet: string;
+  inches: string;
+  pounds: string;
+  centimeters: string;
+  kilograms: string;
 }
 
 export function validBasicProfile(state: AppState) {
@@ -23,12 +33,44 @@ export function validBasicProfile(state: AppState) {
   );
 }
 
-export function BasicProfileFields({ state, patch }: Props) {
+function validDrafts(drafts: ProfileDrafts, unitSystem: UnitSystem) {
+  const age = Number(drafts.age);
+  const heightPrimary = Number(unitSystem === "imperial" ? drafts.feet : drafts.centimeters);
+  const heightSecondary = Number(drafts.inches);
+  const weight = Number(unitSystem === "imperial" ? drafts.pounds : drafts.kilograms);
+  const ageValid = drafts.age.trim() !== "" && Number.isInteger(age) && age >= 13 && age <= 100;
+  const heightValid = unitSystem === "imperial"
+    ? drafts.feet.trim() !== "" && drafts.inches.trim() !== "" && Number.isInteger(heightPrimary) && Number.isInteger(heightSecondary) && heightPrimary >= 3 && heightPrimary <= 7 && heightSecondary >= 0 && heightSecondary <= 11
+    : drafts.centimeters.trim() !== "" && Number.isFinite(heightPrimary) && heightPrimary >= 120 && heightPrimary <= 230;
+  const weightValid = (unitSystem === "imperial" ? drafts.pounds : drafts.kilograms).trim() !== ""
+    && Number.isFinite(weight)
+    && weight >= (unitSystem === "imperial" ? 66 : 30)
+    && weight <= (unitSystem === "imperial" ? 772 : 350);
+  return ageValid && heightValid && weightValid;
+}
+
+export function BasicProfileFields({ state, patch, onValidityChange }: Props) {
   const height = cmToFeetInches(state.heightCm);
   const pounds = Math.round(kgToLb(state.weightKg) * 10) / 10;
-  const valid = validBasicProfile(state);
+  const [drafts, setDrafts] = useState<ProfileDrafts>(() => ({
+    age: String(state.age),
+    feet: String(height.feet),
+    inches: String(height.inches),
+    pounds: String(pounds),
+    centimeters: String(Math.round(state.heightCm * 10) / 10),
+    kilograms: String(Math.round(state.weightKg * 10) / 10),
+  }));
+  const valid = validDrafts(drafts, state.unitSystem);
+
+  function updateDraft(key: keyof ProfileDrafts, value: string) {
+    const next = { ...drafts, [key]: value };
+    setDrafts(next);
+    onValidityChange?.(validDrafts(next, state.unitSystem));
+    return next;
+  }
 
   function setUnits(unitSystem: UnitSystem) {
+    onValidityChange?.(validBasicProfile(state));
     patch({ unitSystem });
   }
 
@@ -61,8 +103,13 @@ export function BasicProfileFields({ state, patch }: Props) {
             type="number"
             min={13}
             max={100}
-            value={state.age}
-            onChange={(event) => patch({ age: Number(event.target.value) })}
+            step={1}
+            value={drafts.age}
+            onChange={(event) => {
+              const raw = event.target.value;
+              updateDraft("age", raw);
+              if (raw.trim() !== "") patch({ age: Number(raw) });
+            }}
           />
         </BasicField>
         <BasicField label="Equation used">
@@ -83,8 +130,12 @@ export function BasicProfileFields({ state, patch }: Props) {
                   type="number"
                   min={3}
                   max={7}
-                  value={height.feet}
-                  onChange={(event) => patch({ heightCm: feetInchesToCm(Number(event.target.value), height.inches) })}
+                  step={1}
+                  value={drafts.feet}
+                  onChange={(event) => {
+                    const next = updateDraft("feet", event.target.value);
+                    if (next.feet.trim() !== "" && next.inches.trim() !== "") patch({ heightCm: feetInchesToCm(Number(next.feet), Number(next.inches)) });
+                  }}
                 />
                 <span>ft</span>
               </div>
@@ -96,8 +147,12 @@ export function BasicProfileFields({ state, patch }: Props) {
                   type="number"
                   min={0}
                   max={11}
-                  value={height.inches}
-                  onChange={(event) => patch({ heightCm: feetInchesToCm(height.feet, Math.max(0, Math.min(11, Number(event.target.value)))) })}
+                  step={1}
+                  value={drafts.inches}
+                  onChange={(event) => {
+                    const next = updateDraft("inches", event.target.value);
+                    if (next.feet.trim() !== "" && next.inches.trim() !== "") patch({ heightCm: feetInchesToCm(Number(next.feet), Math.max(0, Math.min(11, Number(next.inches)))) });
+                  }}
                 />
                 <span>in</span>
               </div>
@@ -111,8 +166,12 @@ export function BasicProfileFields({ state, patch }: Props) {
                 min={66}
                 max={772}
                 step="0.1"
-                value={pounds}
-                onChange={(event) => patch({ weightKg: lbToKg(Number(event.target.value)) })}
+                value={drafts.pounds}
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  updateDraft("pounds", raw);
+                  if (raw.trim() !== "") patch({ weightKg: lbToKg(Number(raw)) });
+                }}
               />
               <span>lb</span>
             </div>
@@ -127,8 +186,13 @@ export function BasicProfileFields({ state, patch }: Props) {
                 type="number"
                 min={120}
                 max={230}
-                value={Math.round(state.heightCm * 10) / 10}
-                onChange={(event) => patch({ heightCm: Number(event.target.value) })}
+                step="0.1"
+                value={drafts.centimeters}
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  updateDraft("centimeters", raw);
+                  if (raw.trim() !== "") patch({ heightCm: Number(raw) });
+                }}
               />
               <span>cm</span>
             </div>
@@ -141,8 +205,12 @@ export function BasicProfileFields({ state, patch }: Props) {
                 min={30}
                 max={350}
                 step="0.1"
-                value={Math.round(state.weightKg * 10) / 10}
-                onChange={(event) => patch({ weightKg: Number(event.target.value) })}
+                value={drafts.kilograms}
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  updateDraft("kilograms", raw);
+                  if (raw.trim() !== "") patch({ weightKg: Number(raw) });
+                }}
               />
               <span>kg</span>
             </div>

@@ -1,6 +1,8 @@
 import type { AppState } from "@/lib/startHereModels";
 import { buildAdaptationReview } from "@/lib/startHereAdaptation";
 import { learnedBehaviorSignals } from "@/lib/startHereBehavior";
+import { externalFoodTotals, VERIFIED_FOODS } from "@/lib/startHereFoodLog";
+import type { CoachFoodLogAction } from "@/lib/startHereFoodLog";
 import { buildEffectiveDayMeals, type currentTargets } from "@/lib/startHerePlan";
 import { buildTrainingWeek } from "@/lib/startHereWeek";
 
@@ -10,7 +12,25 @@ export interface CoachAIResponse {
   available: boolean;
   answer?: string;
   canonicalCommand?: string | null;
+  foodLog?: CoachFoodLogAction | null;
   model?: string;
+}
+
+function isFoodLogAction(value: unknown): value is CoachFoodLogAction {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<CoachFoodLogAction>;
+  const isRange = (range: unknown): range is { min: number; max: number } | null => range === null
+    || (typeof range === "object" && range !== null
+      && typeof (range as { min?: unknown }).min === "number"
+      && typeof (range as { max?: unknown }).max === "number");
+  return typeof item.name === "string"
+    && typeof item.calories === "number"
+    && typeof item.protein === "number"
+    && (item.source === "verified" || item.source === "user" || item.source === "estimated")
+    && typeof item.sourceLabel === "string"
+    && (item.catalogId === null || typeof item.catalogId === "string")
+    && isRange(item.calorieRange)
+    && isRange(item.proteinRange);
 }
 
 export async function askCoach(
@@ -32,6 +52,12 @@ export async function askCoach(
   }));
   const loggedCalories = todayMeals.filter((item) => item.logged).reduce((total, item) => total + item.calories, 0);
   const loggedProtein = todayMeals.filter((item) => item.logged).reduce((total, item) => total + item.protein, 0);
+  const todayExternalFoods = state.externalFoodLogs
+    .filter((item) => item.date === currentDate)
+    .map(({ name, calories, protein }) => ({ name, calories, protein }));
+  const externalTotals = externalFoodTotals(state, currentDate);
+  const totalLoggedCalories = loggedCalories + externalTotals.calories;
+  const totalLoggedProtein = loggedProtein + externalTotals.protein;
 
   try {
     const response = await fetch("/api/start-here-coach", {
@@ -78,10 +104,12 @@ export async function askCoach(
           weekTrainingPlanned: trainingWeek.scheduledCount,
           weekScheduleAdjustments: trainingWeek.adjustmentSummary.slice(0, 6),
           todayMeals,
-          loggedCalories,
-          loggedProtein,
-          remainingCalories: Math.max(0, targets.calories - loggedCalories),
-          remainingProtein: Math.max(0, targets.proteinGrams - loggedProtein),
+          todayExternalFoods,
+          verifiedFoodCatalog: VERIFIED_FOODS.map(({ id, name, calories, protein, aliases, sourceLabel, checkedOn }) => ({ id, name, calories, protein, aliases, sourceLabel, checkedOn })),
+          loggedCalories: totalLoggedCalories,
+          loggedProtein: totalLoggedProtein,
+          remainingCalories: Math.max(0, targets.calories - totalLoggedCalories),
+          remainingProtein: Math.max(0, targets.proteinGrams - totalLoggedProtein),
         },
         history: state.coachHistory.slice(-6).map((item) => ({ role: item.role, text: item.text })),
       }),
@@ -94,6 +122,7 @@ export async function askCoach(
       available: true,
       answer: typeof data.answer === "string" ? data.answer.trim() : undefined,
       canonicalCommand: typeof data.canonicalCommand === "string" ? data.canonicalCommand.trim() : null,
+      foodLog: isFoodLogAction(data.foodLog) ? data.foodLog : null,
       model: typeof data.model === "string" ? data.model : undefined,
     };
   } catch {

@@ -54,6 +54,19 @@ export interface MealLog {
   mealId: string;
 }
 
+export interface ExternalFoodLog {
+  id: string;
+  date: string;
+  name: string;
+  calories: number;
+  protein: number;
+  source: "verified" | "user" | "estimated";
+  sourceLabel: string;
+  catalogId: string | null;
+  calorieRange?: { min: number; max: number } | null;
+  proteinRange?: { min: number; max: number } | null;
+}
+
 export interface MealSwapLog {
   date: string;
   sourceMealId: string;
@@ -141,6 +154,7 @@ export interface AppState {
   todayOverride: TodayOverride;
   eatenMealIds: string[];
   mealLogs: MealLog[];
+  externalFoodLogs: ExternalFoodLog[];
   mealSwapLogs: MealSwapLog[];
   exerciseSwapLogs: ExerciseSwapLog[];
   readinessCheckIns: ReadinessCheckIn[];
@@ -156,7 +170,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 9,
+  version: 10,
   onboarded: false,
   currentDay: "",
   unitSystem: "imperial",
@@ -206,6 +220,7 @@ export const INITIAL_STATE: AppState = {
   todayOverride: { minutes: null, equipment: null, note: null },
   eatenMealIds: [],
   mealLogs: [],
+  externalFoodLogs: [],
   mealSwapLogs: [],
   exerciseSwapLogs: [],
   readinessCheckIns: [],
@@ -246,6 +261,7 @@ export function mergeStoredState(value: unknown): AppState {
     foodRequests: Array.isArray(stored.foodRequests) ? stored.foodRequests : [],
     mealRotation: typeof stored.mealRotation === "number" ? stored.mealRotation : 0,
     mealLogs: Array.isArray(stored.mealLogs) ? stored.mealLogs : [],
+    externalFoodLogs: Array.isArray(stored.externalFoodLogs) ? stored.externalFoodLogs : [],
     mealSwapLogs: Array.isArray(stored.mealSwapLogs) ? stored.mealSwapLogs : [],
     exerciseSwapLogs: Array.isArray(stored.exerciseSwapLogs) ? stored.exerciseSwapLogs : [],
     readinessCheckIns: Array.isArray(stored.readinessCheckIns) ? stored.readinessCheckIns : [],
@@ -260,6 +276,6 @@ export function mergeStoredState(value: unknown): AppState {
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
     currentDay: typeof stored.currentDay === "string" ? stored.currentDay : "",
-    version: 9,
+    version: 10,
   };
 }

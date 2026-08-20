@@ -166,6 +166,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .start-field { display: block; border: 1px solid var(--border); border-radius: 20px; background: white; padding: 11px 14px; }
 .start-field > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 760; }
 .start-field input, .start-field select { width: 100%; min-height: 36px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 16px; font-weight: 650; }
+.start-field select, .mini-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fcfbf8;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m6 8 4 4 4-4' stroke='%2317483f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 9px center;
+  background-repeat: no-repeat;
+  background-size: 17px;
+  border-radius: 12px;
+  cursor: pointer;
+  padding-left: 10px;
+  padding-right: 34px;
+}
+.start-field select option, .mini-select option { background: white; color: var(--ink); }
 .unit-input { display: flex; align-items: center; gap: 5px; }
 .unit-input > span { color: #8a928f; font-size: 12px; font-weight: 700; }
 .start-label { margin-bottom: 10px; color: var(--muted); font-size: 12px; font-weight: 760; }
@@ -228,6 +242,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .swap-option { min-height: 62px; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 18px; background: white; padding: 11px 13px; color: var(--ink); text-align: left; cursor: pointer; }
 .swap-option strong { display: block; font-size: 13px; }
 .swap-option small { display: block; margin-top: 3px; color: #77817d; font-size: 11px; line-height: 1.4; }
+.external-food-row { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 18px; background: #fcfbf8; padding: 11px 12px; }
 
 .exercise-row { display: flex; min-height: 78px; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 20px; background: white; padding: 13px; }
 .exercise-number { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 12px; background: var(--sage); color: var(--green); font-size: 11px; font-weight: 800; }
@@ -262,7 +277,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .toggle span { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 999px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.14); transition: transform .16s ease; }
 .toggle-on { background: var(--green); }
 .toggle-on span { transform: translateX(18px); }
-.mini-select { min-height: 38px; max-width: 105px; border: 1px solid var(--border); border-radius: 12px; background: #fcfbf8; padding: 0 8px; color: #4e5a56; font-size: 11px; font-weight: 700; }
+.mini-select { min-height: 38px; max-width: 118px; border: 1px solid var(--border); color: #4e5a56; font-size: 11px; font-weight: 700; }
 
 .bottom-nav { position: fixed; bottom: 0; left: 50%; z-index: 30; width: 100%; max-width: 430px; transform: translateX(-50%); display: flex; justify-content: space-around; border-top: 1px solid var(--border); background: rgba(252,250,246,.95); padding: 7px 4px max(9px,env(safe-area-inset-bottom)); backdrop-filter: blur(18px); }
 .nav-item { display: flex; min-width: 62px; min-height: 57px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 16px; background: transparent; color: #89918e; cursor: pointer; }
