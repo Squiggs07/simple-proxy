@@ -1,9 +1,6 @@
 name: Package Start Here
 
 on:
-  push:
-    branches:
-      - dev
   workflow_dispatch:
 
 permissions:

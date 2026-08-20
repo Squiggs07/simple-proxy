@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
@@ -51,13 +51,23 @@ const requestSchema = z.object({
     weekTrainingCompleted: z.number().int().min(0).max(7),
     weekTrainingPlanned: z.number().int().min(0).max(6),
     weekScheduleAdjustments: z.array(z.string().max(180)).max(6),
+    todayMeals: z.array(z.object({
+      name: z.string().max(120),
+      calories: z.number().int().nonnegative(),
+      protein: z.number().int().nonnegative(),
+      logged: z.boolean(),
+    })).max(5),
+    loggedCalories: z.number().int().nonnegative(),
+    loggedProtein: z.number().int().nonnegative(),
+    remainingCalories: z.number().int().nonnegative(),
+    remainingProtein: z.number().int().nonnegative(),
   }),
   history: z.array(z.object({ role: z.enum(["user", "coach"]), text: z.string().max(1800) })).max(6).default([]),
 });
 
 const responseSchema = z.object({
   answer: z.string().trim().min(1).max(5000),
-  canonicalCommand: z.string().trim().max(600).nullable().optional(),
+  canonicalCommand: z.string().trim().max(600).nullable(),
 });
 
 const canonicalExamples = [
@@ -110,9 +120,11 @@ export async function POST(request: Request) {
     const result = await generateText({
       model,
       maxOutputTokens: 700,
+      temperature: 0,
+      output: Output.object({ schema: responseSchema }),
       system: `You are Start Here Coach, the intelligence layer inside a consumer fitness, nutrition, recovery, and wellness app. You have two jobs at the same time:
 
-1) ANSWER QUESTIONS. Be a genuinely useful general fitness and wellness assistant. You can explain strength training, hypertrophy, cardio, exercise technique, programming, nutrition principles, protein, meal timing, recovery, sleep, soreness, habits, common supplements, body-composition concepts, and how to make a plan more realistic. Use the user's compact context when it is relevant. The context may include today's readiness, recent workout and meal adherence, a multi-day low-readiness rate, the actual current-week training schedule/status, temporary weekScheduleAdjustments, and learnedBehavior derived from repeated in-app choices. Use those signals when helpful, but do not overreact to one day. Treat learnedBehavior as observed tendencies rather than permanent facts; an explicit current request always overrides an inferred preference. Be plainspoken, practical, and nuanced. Answer the question directly instead of forcing every conversation into a plan change.
+1) ANSWER QUESTIONS. Be a genuinely useful general fitness and wellness assistant. You can explain strength training, hypertrophy, cardio, exercise technique, programming, nutrition principles, protein, meal timing, recovery, sleep, soreness, habits, common supplements, body-composition concepts, restaurant choices, and how to make a plan more realistic. Use the user's compact context when it is relevant. The context may include today's audited planned meals, which planned meals were logged, calories/protein remaining from those logs, today's readiness, recent workout and meal adherence, a multi-day low-readiness rate, the actual current-week training schedule/status, temporary weekScheduleAdjustments, and learnedBehavior derived from repeated in-app choices. Use those signals when helpful, but do not overreact to one day. Treat learnedBehavior as observed tendencies rather than permanent facts; an explicit current request always overrides an inferred preference. Be plainspoken, practical, and nuanced. Answer the question directly instead of forcing every conversation into a plan change.
 
 2) IDENTIFY PLAN CHANGES. If the user is explicitly asking the app to change something, also return one concise canonicalCommand for the deterministic action engine. The model does NOT directly mutate state. Never claim that a plan change has already happened. Never calculate a new calorie or protein target yourself; the deterministic engine does that.
 
@@ -120,7 +132,7 @@ Schedule scope matters. A request caused by one conflict ("I can't train Friday"
 
 Safety boundaries: do not diagnose conditions, interpret imaging/labs as a diagnosis, prescribe medication, or tell someone to push through concerning symptoms. For pain, injury, dizziness, chest pain, fainting, severe shortness of breath, eating-disorder concerns, pregnancy, or other medical situations, give high-level education and recommend appropriate professional care. If symptoms could be urgent, say so clearly. You may discuss common wellness topics and supplements in general terms, including evidence, tradeoffs, and common dosing ranges, while noting relevant medical cautions.
 
-For nutrition, never invent nutrition data for a food or meal that is not in the app's audited library. You can discuss general nutrition principles. When referring to the user's current calorie/protein numbers, use only the provided context.
+For nutrition, never invent nutrition data for a food or meal that is not in the app's audited library. For a restaurant order, use exact numbers only when the user supplied them or a verified restaurant-data result is explicitly present in context. Otherwise say that exact current nutrition needs verification, ask for the official nutrition details when helpful, and still explain how to evaluate the order using the user's provided remaining targets. The todayMeals numbers are audited in-app estimates; do not count an unlogged planned meal as already eaten. When referring to the user's current calorie/protein numbers, use only the provided context.
 
 Keep normal answers concise. Prefer a direct answer plus the few most useful details instead of a long essay unless the user asks for depth.
 
@@ -132,16 +144,12 @@ Examples of supported change-command forms:\n${examples}`,
       prompt: `Current app context: ${context}\n\nRecent conversation:\n${history || "No prior messages."}\n\nUser message: ${parsed.data.message}`,
     });
 
-    const clean = result.text.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-    const normalized = responseSchema.safeParse(JSON.parse(clean));
-    if (!normalized.success) {
-      return NextResponse.json({ available: false, reason: "invalid_model_response" });
-    }
+    const normalized = result.output;
 
     return NextResponse.json({
       available: true,
-      answer: normalized.data.answer,
-      canonicalCommand: normalized.data.canonicalCommand ?? null,
+      answer: normalized.answer,
+      canonicalCommand: normalized.canonicalCommand,
       model,
     });
   } catch (error) {

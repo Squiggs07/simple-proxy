@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { INITIAL_STATE } from "@/lib/startHereModels";
-import { buildDayMeals, buildWorkout, mealFamilyKey, rankMeals } from "@/lib/startHerePlan";
+import { buildDayMeals, buildEffectiveDayMeals, buildWorkout, mealFamilyKey, rankMeals } from "@/lib/startHerePlan";
 
 describe("Start Here planning", () => {
   it("mechanically removes allergy matches", () => {
@@ -43,6 +44,18 @@ describe("Start Here planning", () => {
     const larger = buildDayMeals(largerState, 2200, 160).find((item) => item.sourceMealId === first.sourceMealId);
     expect(larger?.portion).toBe("larger");
     expect(larger?.calories ?? 0).toBeGreaterThan(first.portion === "larger" ? 0 : first.calories);
+  });
+
+  it("applies a saved meal swap before Coach receives today's audited plan", () => {
+    const base = buildDayMeals(INITIAL_STATE, 2200, 140);
+    const source = base[0];
+    const replacement = ALL_MEALS.find((meal) => meal.type === source.meal.type && meal.id !== source.meal.id)!;
+    const effective = buildEffectiveDayMeals({
+      ...INITIAL_STATE,
+      swappedMealIds: { [source.sourceMealId]: replacement.id },
+    }, 2200, 140);
+    expect(effective[0].meal.id).toBe(replacement.id);
+    expect(effective[0].sourceMealId).toBe(source.sourceMealId);
   });
 
   it("avoids duplicate meal families in a varied day when alternatives exist", () => {

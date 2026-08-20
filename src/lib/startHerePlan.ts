@@ -202,6 +202,22 @@ export function buildDayMeals(state: AppState, calorieTarget: number, proteinTar
   });
 }
 
+export function buildEffectiveDayMeals(state: AppState, calorieTarget: number, proteinTarget: number): PlannedMeal[] {
+  return buildDayMeals(state, calorieTarget, proteinTarget).map((item) => {
+    const replacementId = state.swappedMealIds[item.sourceMealId];
+    const replacement = replacementId ? ALL_MEALS.find((meal) => meal.id === replacementId) : undefined;
+    if (!replacement || !isMealAllowed(replacement, state)) return item;
+    const macro = mealMacros(replacement);
+    const factor = item.portion === "smaller" ? 0.88 : item.portion === "larger" ? 1.12 : 1;
+    return {
+      ...item,
+      meal: replacement,
+      calories: Math.round(macro.calories * factor),
+      protein: Math.round(macro.protein * factor),
+    };
+  });
+}
+
 function equipmentMatches(exercise: Exercise, equipment: Equipment) {
   if (equipment === "unsure") return exercise.equipment.includes("unsure") || exercise.equipment.includes("home");
   return exercise.equipment.includes(equipment) || (equipment === "mixed" && exercise.equipment.length > 0);

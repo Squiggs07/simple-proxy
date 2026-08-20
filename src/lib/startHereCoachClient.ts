@@ -1,7 +1,7 @@
 import type { AppState } from "@/lib/startHereModels";
 import { buildAdaptationReview } from "@/lib/startHereAdaptation";
 import { learnedBehaviorSignals } from "@/lib/startHereBehavior";
-import type { currentTargets } from "@/lib/startHerePlan";
+import { buildEffectiveDayMeals, type currentTargets } from "@/lib/startHerePlan";
 import { buildTrainingWeek } from "@/lib/startHereWeek";
 
 type Targets = ReturnType<typeof currentTargets>;
@@ -24,6 +24,14 @@ export async function askCoach(
   const adaptation = buildAdaptationReview(state, currentDate);
   const learnedBehavior = learnedBehaviorSignals(state);
   const trainingWeek = buildTrainingWeek(state, currentDate);
+  const todayMeals = buildEffectiveDayMeals(state, targets.calories, targets.proteinGrams).map((item) => ({
+    name: item.meal.name,
+    calories: item.calories,
+    protein: item.protein,
+    logged: state.eatenMealIds.includes(item.meal.id),
+  }));
+  const loggedCalories = todayMeals.filter((item) => item.logged).reduce((total, item) => total + item.calories, 0);
+  const loggedProtein = todayMeals.filter((item) => item.logged).reduce((total, item) => total + item.protein, 0);
 
   try {
     const response = await fetch("/api/start-here-coach", {
@@ -69,6 +77,11 @@ export async function askCoach(
           weekTrainingCompleted: trainingWeek.completedScheduled,
           weekTrainingPlanned: trainingWeek.scheduledCount,
           weekScheduleAdjustments: trainingWeek.adjustmentSummary.slice(0, 6),
+          todayMeals,
+          loggedCalories,
+          loggedProtein,
+          remainingCalories: Math.max(0, targets.calories - loggedCalories),
+          remainingProtein: Math.max(0, targets.proteinGrams - loggedProtein),
         },
         history: state.coachHistory.slice(-6).map((item) => ({ role: item.role, text: item.text })),
       }),

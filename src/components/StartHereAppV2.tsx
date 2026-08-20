@@ -16,9 +16,10 @@ import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { interpretCoachRequest } from "@/lib/startHereCoach";
 import { askCoach } from "@/lib/startHereCoachClient";
+import { useStartHereCloud } from "@/lib/useStartHereCloud";
 import {
   alternativeExercises,
-  buildDayMeals,
+  buildEffectiveDayMeals,
   buildWorkout,
   currentTargets,
   exercisePreviousPerformance,
@@ -139,6 +140,7 @@ export function StartHereAppV2() {
   const [coachBusy, setCoachBusy] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<AppState | null>(null);
   const [building, setBuilding] = useState(false);
+  const cloud = useStartHereCloud(state, setState, ready);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -167,7 +169,7 @@ export function StartHereAppV2() {
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
-  const plannedMeals = useMemo(() => buildDayMeals(state, targets.calories, targets.proteinGrams), [state, targets.calories, targets.proteinGrams]);
+  const plannedMeals = useMemo(() => buildEffectiveDayMeals(state, targets.calories, targets.proteinGrams), [state, targets.calories, targets.proteinGrams]);
   const rankedMeals = useMemo(() => rankMeals(state), [state]);
   const currentDate = state.currentDay || todayKey();
   const trainingWeek = useMemo(() => buildTrainingWeek(state, currentDate), [state, currentDate]);
@@ -231,16 +233,7 @@ export function StartHereAppV2() {
     setSwapMealId(null);
   }
 
-  function effectiveMeal(item: PlannedMeal) {
-    const replacementId = state.swappedMealIds[item.sourceMealId];
-    const replacement = replacementId ? ALL_MEALS.find((meal) => meal.id === replacementId) : undefined;
-    if (!replacement) return item;
-    const macro = mealMacros(replacement);
-    const factor = item.portion === "smaller" ? 0.88 : item.portion === "larger" ? 1.12 : 1;
-    return { ...item, meal: replacement, calories: Math.round(macro.calories * factor), protein: Math.round(macro.protein * factor) };
-  }
-
-  const dayMeals = plannedMeals.map(effectiveMeal);
+  const dayMeals = plannedMeals;
   const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
   const selectedPlannedMeal = selectedMealId ? dayMeals.find((item) => item.meal.id === selectedMealId) ?? null : null;
   const swapPlannedMeal = swapMealId ? dayMeals.find((item) => item.sourceMealId === swapMealId) ?? null : null;
@@ -457,7 +450,7 @@ export function StartHereAppV2() {
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
       {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} cloud={cloud} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
@@ -816,7 +809,7 @@ function TrendChart({ points }: { points: ReturnType<typeof smoothedWeightTrend>
 }
 
 function CoachView({ state, targets, coachText, setCoachText, submit, busy, canUndo, undo }: { state: AppState; targets: ReturnType<typeof currentTargets>; coachText: string; setCoachText: (value: string) => void; submit: (event: FormEvent) => void | Promise<void>; busy: boolean; canUndo: boolean; undo: () => void }) {
-  const suggestions = ["What should I eat before lifting?", "How many reps should I leave in reserve?", "I only have 20 minutes today", "Give me different meals"];
+  const suggestions = ["How would a restaurant order fit today?", "What should I eat before lifting?", "I only have 20 minutes today", "Give me different meals"];
   return <div>
     <PageHeader eyebrow="COACH" title="Ask anything. Change what you need." copy="Training, food, recovery, sleep, habits, common supplements — or tell Coach to change the actual plan." action={canUndo ? <button onClick={undo} className="soft-button"><Icon name="undo" size={14} /> Undo</button> : undefined} />
     <div className="context-strip"><span><strong>{GOAL_LABELS[state.goal]}</strong><small>goal</small></span><span><strong>{targets.proteinGrams}g</strong><small>protein</small></span><span><strong>{state.trainingDays} × {state.sessionMinutes}</strong><small>training</small></span></div>
@@ -856,9 +849,10 @@ function MealSwap({ source, state, ranked, excludeIds, close, choose }: { source
   return <BottomSheet close={close} title={`Swap ${source.type.toLowerCase()}`}><p className="text-sm leading-6 text-[#68736F]">Search for what sounds better or choose a different option. Meals already in today’s plan are removed so you do not see duplicates.</p><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try: salmon, tacos, pasta, bowl..." className="mt-3 w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm outline-none focus:border-[#6E9084]" /><div className="mt-4 space-y-2.5">{options.map((meal) => { const macro = mealMacros(meal); return <button key={meal.id} onClick={() => choose(meal)} className="swap-option"><span><strong>{meal.name}</strong><small>{macro.protein}g protein · {meal.prepMinutes} min{state.hideCalories ? "" : ` · ${macro.calories} cal`}</small></span><Icon name="chevron" size={17} /></button>; })}{options.length === 0 && <InfoCard>{normalized ? "No audited meal in the current library matches that yet. Add it under ‘Want something else?’ and Coach can help find the closest direction." : "No non-duplicate replacement is available with the current hard exclusions. Try a search or tell Coach what you want instead."}</InfoCard>}</div></BottomSheet>;
 }
 
-function ProfileSheet({ state, targets, patch, close, reset }: { state: AppState; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; close: () => void; reset: () => void }) {
+function ProfileSheet({ state, targets, patch, cloud, close, reset }: { state: AppState; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; cloud: ReturnType<typeof useStartHereCloud>; close: () => void; reset: () => void }) {
   return <BottomSheet close={close} title="Your plan settings">
     <div className="grid grid-cols-2 gap-3"><MiniCard label="Goal" value={GOAL_LABELS[state.goal]} /><MiniCard label="Starting target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div>
+    <AccountSettings cloud={cloud} />
     <div className="mt-5 space-y-3">
       <SettingRow title="Units" copy="Change how body weight, height, and gym loads are displayed." control={<select className="mini-select" value={state.unitSystem} onChange={(e) => patch({ unitSystem: e.target.value as AppState["unitSystem"] })}><option value="imperial">Imperial</option><option value="metric">Metric</option></select>} />
       <SettingRow title="Hide calories" copy="Meals and protein stay visible." control={<button onClick={() => patch({ hideCalories: !state.hideCalories })} className={cx("toggle", state.hideCalories && "toggle-on")}><span /></button>} />
@@ -879,6 +873,43 @@ function ProfileSheet({ state, targets, patch, close, reset }: { state: AppState
     <div className="mt-5 rounded-[20px] bg-[#FCFAF6] p-4"><p className="text-xs font-bold text-[#68736F]">ESTIMATE DETAILS</p><div className="mt-3 grid grid-cols-2 gap-y-3 text-sm"><span className="text-[#7D8582]">Maintenance</span><strong className="text-right">{targets.maintenanceCalories} cal</strong><span className="text-[#7D8582]">Protein range</span><strong className="text-right">{targets.proteinRange[0]}–{targets.proteinRange[1]}g</strong><span className="text-[#7D8582]">Activity</span><strong className="text-right capitalize">{state.activity}</strong></div></div>
     <button onClick={reset} className="mt-6 w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm font-semibold text-[#7A514D]">Restart onboarding</button>
   </BottomSheet>;
+}
+
+function AccountSettings({ cloud }: { cloud: ReturnType<typeof useStartHereCloud> }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await cloud.sendMagicLink(email.trim());
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "Could not send the sign-in link.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="mt-5 rounded-[22px] border border-[#DCE7E0] bg-[#ECF3EE] p-4">
+    <div className="flex items-start justify-between gap-3">
+      <div><p className="text-xs font-extrabold uppercase tracking-[.1em] text-[#547067]">ACCOUNT & BACKUP</p><p className="mt-1 text-xs leading-5 text-[#62736D]">Your plan always saves on this device. An account adds optional cross-device backup.</p></div>
+      <span className={cx("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", cloud.phase === "synced" ? "bg-[#4E806B]" : cloud.phase === "error" ? "bg-[#B75B59]" : "bg-[#B99A62]")} />
+    </div>
+    <p className="mt-3 text-xs font-semibold text-[#405A52]">{cloud.message}</p>
+    {!cloud.configured && <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs leading-5 text-[#68736F]">Cloud backup is not enabled yet. Nothing changes: Start Here remains fully usable offline.</p>}
+    {cloud.configured && cloud.user && <div className="mt-4">
+      <p className="text-sm font-semibold">{cloud.user.email}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2"><button disabled={busy} onClick={() => void cloud.syncNow()} className="start-secondary !min-h-11 text-xs">Sync now</button><button disabled={busy} onClick={() => void cloud.signOut()} className="start-secondary !min-h-11 text-xs">Sign out</button></div>
+    </div>}
+    {cloud.configured && !cloud.user && <form onSubmit={submit} className="mt-4">
+      <label className="start-field"><span>EMAIL</span><input required type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+      <button disabled={busy || !email.trim()} className="start-primary mt-2 w-full !min-h-11 text-sm disabled:opacity-45" type="submit">{busy ? "Sending…" : "Email me a sign-in link"}</button>
+      {error && <p className="mt-2 text-xs text-[#A44F4D]">{error}</p>}
+    </form>}
+  </div>;
 }
 
 function SettingRow({ title, copy, control }: { title: string; copy: string; control: ReactNode }) {
