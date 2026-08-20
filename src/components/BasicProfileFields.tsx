@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { AppSelect } from "@/components/AppSelect";
 import type { AppState, UnitSystem } from "@/lib/startHereModels";
 import { cmToFeetInches, feetInchesToCm, kgToLb, lbToKg } from "@/lib/startHereUnits";
 
@@ -113,10 +114,7 @@ export function BasicProfileFields({ state, patch, onValidityChange }: Props) {
           />
         </BasicField>
         <BasicField label="Equation used">
-          <select value={state.sexEquation} onChange={(event) => patch({ sexEquation: event.target.value as "male" | "female" })}>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-          </select>
+          <AppSelect label="Equation used" value={state.sexEquation} options={[{ value: "male", label: "Male" }, { value: "female", label: "Female" }]} onChange={(sexEquation) => patch({ sexEquation })} />
         </BasicField>
       </div>
 

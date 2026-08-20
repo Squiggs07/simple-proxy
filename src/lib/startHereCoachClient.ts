@@ -1,4 +1,4 @@
-import type { AppState } from "@/lib/startHereModels";
+import type { AppState, CustomMealType } from "@/lib/startHereModels";
 import { buildAdaptationReview } from "@/lib/startHereAdaptation";
 import { learnedBehaviorSignals } from "@/lib/startHereBehavior";
 import { externalFoodTotals, VERIFIED_FOODS } from "@/lib/startHereFoodLog";
@@ -13,6 +13,7 @@ export interface CoachAIResponse {
   answer?: string;
   canonicalCommand?: string | null;
   foodLog?: CoachFoodLogAction | null;
+  mealSwap?: CoachFoodLogAction | null;
   model?: string;
 }
 
@@ -37,6 +38,7 @@ export async function askCoach(
   message: string,
   state: AppState,
   targets: Targets,
+  options: { intent?: "coach" | "meal_swap"; sourceMeal?: string; mealType?: CustomMealType } = {},
 ): Promise<CoachAIResponse> {
   const trimmed = message.trim();
   if (!trimmed) return { available: false };
@@ -65,6 +67,10 @@ export async function askCoach(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: trimmed,
+        intent: options.intent ?? "coach",
+        swapContext: options.intent === "meal_swap" && options.sourceMeal && options.mealType
+          ? { sourceMeal: options.sourceMeal, mealType: options.mealType }
+          : null,
         context: {
           goal: state.goal,
           age: state.age,
@@ -123,11 +129,23 @@ export async function askCoach(
       answer: typeof data.answer === "string" ? data.answer.trim() : undefined,
       canonicalCommand: typeof data.canonicalCommand === "string" ? data.canonicalCommand.trim() : null,
       foodLog: isFoodLogAction(data.foodLog) ? data.foodLog : null,
+      mealSwap: isFoodLogAction(data.mealSwap) ? data.mealSwap : null,
       model: typeof data.model === "string" ? data.model : undefined,
     };
   } catch {
     return { available: false };
   }
+}
+
+export async function estimateCustomMeal(
+  description: string,
+  sourceMeal: string,
+  mealType: CustomMealType,
+  state: AppState,
+  targets: Targets,
+) {
+  const response = await askCoach(description, state, targets, { intent: "meal_swap", sourceMeal, mealType });
+  return response.mealSwap ?? null;
 }
 
 export async function canonicalizeCoachRequest(

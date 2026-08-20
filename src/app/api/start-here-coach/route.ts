@@ -14,6 +14,11 @@ const baselineSchema = z.object({
 
 const requestSchema = z.object({
   message: z.string().trim().min(1).max(1800),
+  intent: z.enum(["coach", "meal_swap"]).default("coach"),
+  swapContext: z.object({
+    sourceMeal: z.string().max(120),
+    mealType: z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]),
+  }).nullable().default(null),
   context: z.object({
     goal: z.string().max(40),
     age: z.number().min(13).max(100),
@@ -80,10 +85,7 @@ const requestSchema = z.object({
   history: z.array(z.object({ role: z.enum(["user", "coach"]), text: z.string().max(1800) })).max(6).default([]),
 });
 
-const responseSchema = z.object({
-  answer: z.string().trim().min(1).max(5000),
-  canonicalCommand: z.string().trim().max(600).nullable(),
-  foodLog: z.object({
+const foodEstimateSchema = z.object({
     name: z.string().trim().min(1).max(120),
     calories: z.number().int().min(0).max(5000),
     protein: z.number().int().min(0).max(500),
@@ -97,17 +99,23 @@ const responseSchema = z.object({
       min: z.number().int().min(0).max(500),
       max: z.number().int().min(0).max(500),
     }).nullable(),
-  }).nullable(),
 });
 
-type GeneratedFoodLog = z.infer<typeof responseSchema>["foodLog"];
+const responseSchema = z.object({
+  answer: z.string().trim().min(1).max(5000),
+  canonicalCommand: z.string().trim().max(600).nullable(),
+  foodLog: foodEstimateSchema.nullable(),
+  mealSwap: foodEstimateSchema.nullable(),
+});
+
+type GeneratedFoodEstimate = z.infer<typeof foodEstimateSchema>;
 
 function orderedRange(range: { min: number; max: number } | null, midpoint: number) {
   if (!range) return { min: midpoint, max: midpoint };
   return { min: Math.min(range.min, range.max, midpoint), max: Math.max(range.min, range.max, midpoint) };
 }
 
-function userActuallyProvidedNutrition(message: string, history: Array<{ role: "user" | "coach"; text: string }>, food: NonNullable<GeneratedFoodLog>) {
+function userActuallyProvidedNutrition(message: string, history: Array<{ role: "user" | "coach"; text: string }>, food: GeneratedFoodEstimate) {
   const userText = [message, ...history.filter((item) => item.role === "user").map((item) => item.text)].join(" ");
   const calorieNumber = new RegExp(`\\b${food.calories}\\b[^.]{0,25}\\b(?:cal|calorie|calories|kcal)`, "i");
   const proteinNumber = new RegExp(`\\b${food.protein}\\s*g?(?:rams?)?\\b[^.]{0,20}\\bprotein`, "i");
@@ -115,7 +123,7 @@ function userActuallyProvidedNutrition(message: string, history: Array<{ role: "
   return calorieNumber.test(userText) && (proteinNumber.test(userText) || proteinFirst.test(userText));
 }
 
-function normalizeFoodLog(food: GeneratedFoodLog, message: string, history: Array<{ role: "user" | "coach"; text: string }>) {
+function normalizeFoodEstimate(food: GeneratedFoodEstimate | null, message: string, history: Array<{ role: "user" | "coach"; text: string }>) {
   if (!food) return null;
 
   if (food.basis === "catalog" && food.catalogId) {
@@ -213,7 +221,9 @@ Schedule scope matters. A request caused by one conflict ("I can't train Friday"
 
 Safety boundaries: do not diagnose conditions, interpret imaging/labs as a diagnosis, prescribe medication, or tell someone to push through concerning symptoms. For pain, injury, dizziness, chest pain, fainting, severe shortness of breath, eating-disorder concerns, pregnancy, or other medical situations, give high-level education and recommend appropriate professional care. If symptoms could be urgent, say so clearly. You may discuss common wellness topics and supplements in general terms, including evidence, tradeoffs, and common dosing ranges, while noting relevant medical cautions.
 
-For nutrition, support open-ended questions about any food, meal, restaurant order, recipe, portion, substitution, or eating situation. Answer hypothetical questions such as “how would this fit?” directly and set foodLog to null. Use reasonable calorie/protein ranges when exact details are unknown, state the assumptions briefly, and never present an estimate as verified.
+For nutrition, support open-ended questions about any food, meal, restaurant order, recipe, portion, substitution, or eating situation. Answer hypothetical questions such as “how would this fit?” directly and set foodLog and mealSwap to null. Use reasonable calorie/protein ranges when exact details are unknown, state the assumptions briefly, and never present an estimate as verified.
+
+The request includes an intent. For intent "meal_swap", interpret the user's description as the meal they want to use instead of the provided swapContext source meal. Return a practical mealSwap nutrition estimate, not a foodLog, because the user is changing the plan rather than saying they already ate it. Preserve quantities and recognizable product or restaurant names in the short meal name. Use basis "user_provided" only when the user explicitly supplied both total calories and total protein; otherwise use basis "estimated" with honest ranges. If the description is too vague to estimate, ask one concise follow-up and leave mealSwap null. For meal_swap intent, canonicalCommand and foodLog must be null.
 
 Only create foodLog when the user clearly says they ate/had the food and asks to add, log, or track it. Food logs are for today by default and must never alter the ongoing plan. For an exact verifiedFoodCatalog match, use basis "catalog" and its catalogId; server code will enforce the catalog values. When the user explicitly gives both calories and protein, use basis "user_provided" and those exact numbers. For any other food or order, use basis "estimated", choose a practical midpoint for calories/protein, and include honest low/high calorieRange and proteinRange values. Name the item naturally and briefly. If the description is too vague to make even a useful estimate (for example, “some food”), ask one concise follow-up and leave foodLog null. A follow-up such as “just today” may resolve a clear food-log request from recent conversation. When foodLog is non-null, canonicalCommand must be null. Explain that an estimated log is an estimate, but do not claim anything was saved before the deterministic action layer confirms it.
 
@@ -222,21 +232,23 @@ The todayMeals numbers are audited in-app estimates; do not count an unlogged pl
 Keep normal answers concise. Prefer a direct answer plus the few most useful details instead of a long essay unless the user asks for depth.
 
 Return ONLY JSON with this shape:
-{"answer":"useful response to the user","canonicalCommand":null,"foodLog":null}
+{"answer":"useful response to the user","canonicalCommand":null,"foodLog":null,"mealSwap":null}
 If an app change is requested, canonicalCommand should be a concise command the deterministic engine can understand. If it is only a question, canonicalCommand must be null.
 
 Examples of supported change-command forms:\n${examples}`,
-      prompt: `Current app context: ${context}\n\nRecent conversation:\n${history || "No prior messages."}\n\nUser message: ${parsed.data.message}`,
+      prompt: `Request intent: ${parsed.data.intent}\nSwap context: ${JSON.stringify(parsed.data.swapContext)}\nCurrent app context: ${context}\n\nRecent conversation:\n${history || "No prior messages."}\n\nUser message: ${parsed.data.message}`,
     });
 
     const normalized = result.output;
-    const foodLog = normalizeFoodLog(normalized.foodLog, parsed.data.message, parsed.data.history);
+    const foodLog = normalizeFoodEstimate(normalized.foodLog, parsed.data.message, parsed.data.history);
+    const mealSwap = normalizeFoodEstimate(normalized.mealSwap, parsed.data.message, parsed.data.history);
 
     return NextResponse.json({
       available: true,
       answer: normalized.answer,
-      canonicalCommand: foodLog ? null : normalized.canonicalCommand,
+      canonicalCommand: foodLog || mealSwap ? null : normalized.canonicalCommand,
       foodLog,
+      mealSwap,
       model,
     });
   } catch (error) {

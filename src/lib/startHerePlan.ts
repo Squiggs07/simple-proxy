@@ -5,6 +5,7 @@ import type { TrainingSplit, WorkoutVariant } from "@/lib/startHereWeek";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_EXERCISES as EXERCISES } from "@/lib/startHereExerciseLibrary";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
+import { customMealById, reusableCustomMeals } from "@/lib/startHereCustomMeals";
 import type { AppState, Equipment, MealPortion } from "@/lib/startHereModels";
 import { displayLoad } from "@/lib/startHereUnits";
 
@@ -86,7 +87,8 @@ export function isMealAllowed(meal: Meal, state: AppState) {
 }
 
 export function rankMeals(state: AppState): RankedMeal[] {
-  return ALL_MEALS.filter((meal) => isMealAllowed(meal, state))
+  const customMemory = new Map(state.customMeals.map((item) => [item.id, item]));
+  return [...ALL_MEALS, ...reusableCustomMeals(state)].filter((meal) => isMealAllowed(meal, state))
     .map((meal) => {
       let score = 0;
       const reasons: string[] = [];
@@ -121,6 +123,13 @@ export function rankMeals(state: AppState): RankedMeal[] {
       const learned = mealBehaviorScore(state, meal);
       score += learned.score;
       reasons.push(...learned.reasons);
+      const remembered = customMemory.get(meal.id);
+      if (remembered) {
+        score += 12 + Math.min(12, remembered.timesChosen * 3);
+        reasons.unshift(remembered.timesChosen > 1
+          ? `one of your meals — chosen ${remembered.timesChosen} times`
+          : "a meal you asked Start Here to remember");
+      }
       return { meal, score, reasons };
     })
     .sort((a, b) => b.score - a.score || a.meal.prepMinutes - b.meal.prepMinutes);
@@ -205,7 +214,9 @@ export function buildDayMeals(state: AppState, calorieTarget: number, proteinTar
 export function buildEffectiveDayMeals(state: AppState, calorieTarget: number, proteinTarget: number): PlannedMeal[] {
   return buildDayMeals(state, calorieTarget, proteinTarget).map((item) => {
     const replacementId = state.swappedMealIds[item.sourceMealId];
-    const replacement = replacementId ? ALL_MEALS.find((meal) => meal.id === replacementId) : undefined;
+    const replacement = replacementId
+      ? ALL_MEALS.find((meal) => meal.id === replacementId) ?? customMealById(state, replacementId) ?? undefined
+      : undefined;
     if (!replacement || !isMealAllowed(replacement, state)) return item;
     const macro = mealMacros(replacement);
     const factor = item.portion === "smaller" ? 0.88 : item.portion === "larger" ? 1.12 : 1;

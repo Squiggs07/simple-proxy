@@ -1,6 +1,7 @@
 import type { Exercise, Meal } from "@/lib/startHereCatalog";
 import { ALL_EXERCISES as EXERCISES } from "@/lib/startHereExerciseLibrary";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
+import { customMealById } from "@/lib/startHereCustomMeals";
 import type { AppState, ExerciseSwapLog, MealSwapLog } from "@/lib/startHereModels";
 
 export interface BehaviorScore {
@@ -53,7 +54,7 @@ export function mealBehaviorScore(state: AppState, meal: Meal): BehaviorScore {
   let related = 0;
 
   for (const log of logs) {
-    const chosen = ALL_MEALS.find((item) => item.id === log.chosenMealId);
+    const chosen = ALL_MEALS.find((item) => item.id === log.chosenMealId) ?? customMealById(state, log.chosenMealId);
     if (!chosen || chosen.id === meal.id) continue;
     if (chosen.type === meal.type && chosen.cuisine === meal.cuisine) related += 0.45;
     if (chosen.type === meal.type && chosen.format === meal.format) related += 0.65;
@@ -84,8 +85,8 @@ export function exerciseBehaviorScore(state: AppState, exercise: Exercise): Beha
   return { score, reasons };
 }
 
-function mealName(id: string) {
-  return ALL_MEALS.find((item) => item.id === id)?.name ?? id;
+function mealName(state: AppState, id: string) {
+  return ALL_MEALS.find((item) => item.id === id)?.name ?? customMealById(state, id)?.name ?? id;
 }
 
 function exerciseName(id: string) {
@@ -108,13 +109,22 @@ export function learnedBehaviorSignals(state: AppState): string[] {
   const exerciseLogs = recentExerciseSwaps(state);
 
   for (const pair of topPairs<MealSwapLog>(mealLogs, (item) => item.sourceMealId, (item) => item.chosenMealId).slice(0, 2)) {
-    if (pair.count >= 2) signals.push(`Often swaps ${mealName(pair.from)} for ${mealName(pair.to)} (${pair.count} times).`);
+    if (pair.count >= 2) signals.push(`Often swaps ${mealName(state, pair.from)} for ${mealName(state, pair.to)} (${pair.count} times).`);
   }
 
   const mealChoices = countBy(mealLogs, (item) => item.chosenMealId);
   for (const [id, count] of [...mealChoices.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2)) {
-    if (count >= 2 && !signals.some((signal) => signal.includes(mealName(id)))) {
-      signals.push(`Has actively chosen ${mealName(id)} ${count} times.`);
+    if (count >= 2 && !signals.some((signal) => signal.includes(mealName(state, id)))) {
+      signals.push(`Has actively chosen ${mealName(state, id)} ${count} times.`);
+    }
+  }
+
+  for (const custom of [...state.customMeals]
+    .filter((item) => item.remember)
+    .sort((a, b) => b.timesChosen - a.timesChosen || b.lastChosenAt.localeCompare(a.lastChosenAt))
+    .slice(0, 2)) {
+    if (!signals.some((signal) => signal.includes(custom.name))) {
+      signals.push(`Asked Start Here to remember ${custom.name} as a normal ${custom.type.toLowerCase()} choice.`);
     }
   }
 
@@ -123,7 +133,7 @@ export function learnedBehaviorSignals(state: AppState): string[] {
   }
 
   if (state.rejectedMealIds.length) {
-    const names = state.rejectedMealIds.slice(-3).map(mealName).join(", ");
+    const names = state.rejectedMealIds.slice(-3).map((id) => mealName(state, id)).join(", ");
     signals.push(`Has marked these meals as not for them: ${names}.`);
   }
 

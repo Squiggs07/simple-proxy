@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { ActiveWorkoutExperience } from "@/components/ActiveWorkoutExperience";
+import { AppSelect } from "@/components/AppSelect";
 import { BasicProfileFields, validBasicProfile } from "@/components/BasicProfileFields";
 import { FoodPreferenceEditor } from "@/components/FoodPreferenceEditor";
 import { TrainingBaselineFields } from "@/components/TrainingBaselineFields";
@@ -15,8 +16,10 @@ import { displayWeight, displayWeightChange } from "@/lib/startHereUnits";
 import { mealMacros, type Exercise, type Meal } from "@/lib/startHereCatalog";
 import { ALL_MEALS } from "@/lib/startHereMealLibrary";
 import { applyCoachFoodLog, interpretCoachRequest } from "@/lib/startHereCoach";
-import { askCoach } from "@/lib/startHereCoachClient";
+import { askCoach, estimateCustomMeal } from "@/lib/startHereCoachClient";
+import { customMealById, mealChoiceEvidence, rememberCustomMeal } from "@/lib/startHereCustomMeals";
 import { externalFoodTotals } from "@/lib/startHereFoodLog";
+import type { CoachFoodLogAction } from "@/lib/startHereFoodLog";
 import { useStartHereCloud } from "@/lib/useStartHereCloud";
 import {
   alternativeExercises,
@@ -24,6 +27,7 @@ import {
   buildWorkout,
   currentTargets,
   exercisePreviousPerformance,
+  isMealAllowed,
   mealFamilyKey,
   rankMeals,
   reviewProgress,
@@ -146,7 +150,7 @@ export function StartHereAppV2() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const saved = localStorage.getItem("start-here-state-v10") ?? localStorage.getItem("start-here-state-v9") ?? localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
+        const saved = localStorage.getItem("start-here-state-v11") ?? localStorage.getItem("start-here-state-v10") ?? localStorage.getItem("start-here-state-v9") ?? localStorage.getItem("start-here-state-v8") ?? localStorage.getItem("start-here-state-v7") ?? localStorage.getItem("start-here-state-v6") ?? localStorage.getItem("start-here-state-v5") ?? localStorage.getItem("start-here-state-v4") ?? localStorage.getItem("start-here-state-v3");
         const merged = saved ? mergeStoredState(JSON.parse(saved)) : INITIAL_STATE;
         const date = todayKey();
         setState(merged.currentDay === date ? merged : {
@@ -166,7 +170,7 @@ export function StartHereAppV2() {
   }, []);
 
   useEffect(() => {
-    if (ready) localStorage.setItem("start-here-state-v10", JSON.stringify(state));
+    if (ready) localStorage.setItem("start-here-state-v11", JSON.stringify(state));
   }, [state, ready]);
 
   const targets = useMemo(() => currentTargets(state), [state]);
@@ -226,19 +230,77 @@ export function StartHereAppV2() {
 
   function swapMeal(sourceMealId: string, replacement: Meal) {
     const date = todayKey();
-    const currentMealId = state.swappedMealIds[sourceMealId] ?? sourceMealId;
-    patch({
-      swappedMealIds: { ...state.swappedMealIds, [sourceMealId]: replacement.id },
-      mealSwapLogs: [...state.mealSwapLogs, { date, sourceMealId: currentMealId, chosenMealId: replacement.id }],
+    const observedAt = new Date().toISOString();
+    setState((current) => {
+      const currentMealId = current.swappedMealIds[sourceMealId] ?? sourceMealId;
+      return {
+        ...current,
+        swappedMealIds: { ...current.swappedMealIds, [sourceMealId]: replacement.id },
+        mealSwapLogs: [...current.mealSwapLogs, { date, sourceMealId: currentMealId, chosenMealId: replacement.id }],
+        preferenceEvidence: [...current.preferenceEvidence, mealChoiceEvidence(currentMealId, replacement, replacement.type, observedAt)],
+      };
     });
     setSwapMealId(null);
   }
 
+  async function swapToCustomMeal(
+    sourceMealId: string,
+    source: Meal,
+    description: string,
+    manualCalories: number | null,
+    manualProtein: number | null,
+    remember: boolean,
+  ) {
+    const hasManualNutrition = manualCalories !== null || manualProtein !== null;
+    if (hasManualNutrition && (manualCalories === null || manualProtein === null)) {
+      return "Enter both total calories and total protein, or leave both blank for a Coach estimate.";
+    }
+
+    const snapshot = state;
+    const estimate: CoachFoodLogAction | null = manualCalories !== null && manualProtein !== null
+      ? {
+        name: description.trim(),
+        calories: manualCalories,
+        protein: manualProtein,
+        source: "user",
+        sourceLabel: "Nutrition you provided",
+        catalogId: null,
+        calorieRange: null,
+        proteinRange: null,
+      }
+      : await estimateCustomMeal(description, source.name, source.type, snapshot, targets);
+
+    if (!estimate) {
+      return "Coach could not estimate that meal right now. Add the total calories and protein from the label to save it offline.";
+    }
+
+    const date = todayKey();
+    const preview = rememberCustomMeal(snapshot, estimate, description, source.type, remember, new Date().toISOString(), date);
+    if (!isMealAllowed(preview.meal, snapshot)) {
+      return "That description conflicts with one of your food exclusions. Update the description or your food settings before using it.";
+    }
+
+    const observedAt = new Date().toISOString();
+    setState((current) => {
+      const remembered = rememberCustomMeal(current, estimate, description, source.type, remember, observedAt, date);
+      const currentMealId = current.swappedMealIds[sourceMealId] ?? sourceMealId;
+      return {
+        ...current,
+        customMeals: remembered.customMeals,
+        swappedMealIds: { ...current.swappedMealIds, [sourceMealId]: remembered.meal.id },
+        mealSwapLogs: [...current.mealSwapLogs, { date, sourceMealId: currentMealId, chosenMealId: remembered.meal.id }],
+        preferenceEvidence: [...current.preferenceEvidence, mealChoiceEvidence(currentMealId, remembered.meal, source.type, observedAt)],
+      };
+    });
+    setSwapMealId(null);
+    return null;
+  }
+
   const dayMeals = plannedMeals;
-  const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? null : null;
+  const selectedMeal = selectedMealId ? ALL_MEALS.find((meal) => meal.id === selectedMealId) ?? customMealById(state, selectedMealId) : null;
   const selectedPlannedMeal = selectedMealId ? dayMeals.find((item) => item.meal.id === selectedMealId) ?? null : null;
   const swapPlannedMeal = swapMealId ? dayMeals.find((item) => item.sourceMealId === swapMealId) ?? null : null;
-  const swapSource = swapPlannedMeal?.meal ?? (swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? null : null);
+  const swapSource = swapPlannedMeal?.meal ?? (swapMealId ? ALL_MEALS.find((meal) => meal.id === swapMealId) ?? customMealById(state, swapMealId) : null);
 
   function toggleMealEaten(id: string) {
     const date = todayKey();
@@ -454,8 +516,8 @@ export function StartHereAppV2() {
       </div>
 
       {selectedMeal && <MealDetail meal={selectedMeal} state={state} close={() => setSelectedMealId(null)} swap={() => { setSelectedMealId(null); setSwapMealId(selectedPlannedMeal?.sourceMealId ?? selectedMeal.id); }} toggleEaten={toggleMealEaten} />}
-      {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} />}
-      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} cloud={cloud} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v10"); localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
+      {swapSource && swapMealId && <MealSwap source={swapSource} state={state} ranked={rankedMeals.map((item) => item.meal)} excludeIds={dayMeals.map((item) => item.meal.id)} close={() => setSwapMealId(null)} choose={(replacement) => swapMeal(swapMealId, replacement)} chooseCustom={(description, calories, protein, remember) => swapToCustomMeal(swapMealId, swapSource, description, calories, protein, remember)} />}
+      {showProfile && <ProfileSheet state={state} targets={targets} patch={patch} cloud={cloud} close={() => setShowProfile(false)} reset={() => { localStorage.removeItem("start-here-state-v11"); localStorage.removeItem("start-here-state-v10"); localStorage.removeItem("start-here-state-v9"); localStorage.removeItem("start-here-state-v8"); localStorage.removeItem("start-here-state-v7"); localStorage.removeItem("start-here-state-v6"); localStorage.removeItem("start-here-state-v5"); localStorage.removeItem("start-here-state-v4"); localStorage.removeItem("start-here-state-v3"); setState(INITIAL_STATE); setStep(0); setShowProfile(false); }} />}
       {showWeightLog && <WeightLogSheet currentKg={state.weightKg} unitSystem={state.unitSystem} onClose={() => setShowWeightLog(false)} onSave={saveWeight} />}
       {showMonthlySummary && <MonthlySummarySheet state={state} onClose={() => setShowMonthlySummary(false)} />}
     </div>
@@ -552,7 +614,7 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
               <ChoiceGroup label="Time per session"><div className="chip-row wrap">{[15,20,30,45,60,75,90].map((n) => <button key={n} onClick={() => patch({ sessionMinutes: n })} className={cx("text-chip", state.sessionMinutes === n && "chip-active")}>{n} min</button>)}</div></ChoiceGroup>
               <ChoiceGroup label="Where / equipment"><div className="chip-row wrap">{(["gym","dumbbells","home","mixed","unsure"] as Equipment[]).map((item) => <button key={item} onClick={() => patch({ equipment: item })} className={cx("text-chip capitalize", state.equipment === item && "chip-active")}>{item}</button>)}</div></ChoiceGroup>
               <TrainingBaselineFields state={state} patch={patch} />
-              <Field label="How confident do you feel starting?"><select value={state.confidence} onChange={(e) => patch({ confidence: e.target.value as Confidence })}><option value="nervous">Nervous — keep it very simple</option><option value="unsure">Unsure</option><option value="comfortable">Comfortable</option></select></Field>
+              <Field label="How confident do you feel starting?"><AppSelect label="How confident do you feel starting?" value={state.confidence} options={[{ value: "nervous" as Confidence, label: "Nervous", description: "Keep the first steps very simple." }, { value: "unsure" as Confidence, label: "Unsure" }, { value: "comfortable" as Confidence, label: "Comfortable" }]} onChange={(confidence) => patch({ confidence })} /></Field>
             </div>
           </OnboardingSection>
         )}
@@ -571,12 +633,12 @@ function Onboarding({ state, step, setStep, patch, toggleArray, targets, buildin
               <ChoiceGroup label="Cuisines"><div className="chip-row wrap">{cuisineChoices.map((item) => <button key={item} onClick={() => toggleArray("cuisines", item)} className={cx("text-chip", state.cuisines.includes(item) && "chip-active")}>{item}</button>)}</div></ChoiceGroup>
               <ChoiceGroup label="Meal formats"><div className="chip-row wrap">{formatChoices.map((item) => <button key={item} onClick={() => toggleArray("mealFormats", item)} className={cx("text-chip", state.mealFormats.includes(item) && "chip-active")}>{item}</button>)}</div></ChoiceGroup>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Cooking time"><select value={state.cookingMinutes} onChange={(e) => patch({ cookingMinutes: Number(e.target.value) })}><option value={10}>10 min</option><option value={20}>20 min</option><option value={30}>30 min</option><option value={45}>45 min</option></select></Field>
-                <Field label="Meals / day"><select value={state.mealsPerDay} onChange={(e) => patch({ mealsPerDay: Number(e.target.value) })}><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option><option value={5}>5</option></select></Field>
+                <Field label="Cooking time"><AppSelect label="Cooking time" value={state.cookingMinutes} options={[10, 20, 30, 45].map((value) => ({ value, label: `${value} min` }))} onChange={(cookingMinutes) => patch({ cookingMinutes })} /></Field>
+                <Field label="Meals / day"><AppSelect label="Meals per day" value={state.mealsPerDay} options={[2, 3, 4, 5].map((value) => ({ value, label: String(value) }))} onChange={(mealsPerDay) => patch({ mealsPerDay })} /></Field>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Budget"><select value={state.budget} onChange={(e) => patch({ budget: e.target.value as Budget })}><option value="low">Keep it low</option><option value="medium">Moderate</option><option value="flexible">Flexible</option></select></Field>
-                <Field label="Variety"><select value={state.variety} onChange={(e) => patch({ variety: e.target.value as Variety })}><option value="repeat">I like repeats</option><option value="some">Some variety</option><option value="lots">Lots of variety</option></select></Field>
+                <Field label="Budget"><AppSelect label="Budget" value={state.budget} options={[{ value: "low" as Budget, label: "Keep it low" }, { value: "medium" as Budget, label: "Moderate" }, { value: "flexible" as Budget, label: "Flexible" }]} onChange={(budget) => patch({ budget })} /></Field>
+                <Field label="Variety"><AppSelect label="Variety" value={state.variety} options={[{ value: "repeat" as Variety, label: "I like repeats" }, { value: "some" as Variety, label: "Some variety" }, { value: "lots" as Variety, label: "Lots of variety" }]} onChange={(variety) => patch({ variety })} /></Field>
               </div>
             </div>
           </OnboardingSection>
@@ -836,11 +898,18 @@ function CoachView({ state, targets, coachText, setCoachText, submit, busy, canU
 function MealDetail({ meal, state, close, swap, toggleEaten }: { meal: Meal; state: AppState; close: () => void; swap: () => void; toggleEaten: (id: string) => void }) {
   const macros = mealMacros(meal);
   const eaten = state.eatenMealIds.includes(meal.id);
-  return <BottomSheet close={close} title={meal.name}><div className="flex flex-wrap gap-2"><span className="detail-pill">{meal.type}</span><span className="detail-pill"><Icon name="clock" size={13} /> {meal.prepMinutes} min</span><span className="detail-pill">{macros.protein}g protein</span>{!state.hideCalories && <span className="detail-pill">{macros.calories} cal</span>}</div><p className="mt-4 text-sm leading-6 text-[#68736F]">{meal.why}</p><p className="section-label mt-5">INGREDIENTS</p><div className="mt-2 divide-y divide-[#EEE9E1]">{meal.ingredients.map((ingredient) => <div key={ingredient.name} className="flex items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{ingredient.name}</p><p className="mt-0.5 text-xs text-[#7D8582]">{ingredient.amount}</p></div><div className="text-right text-xs text-[#68736F]"><p>{ingredient.protein}g protein</p>{!state.hideCalories && <p className="mt-0.5">{ingredient.calories} cal</p>}</div></div>)}</div><div className="mt-5 grid grid-cols-2 gap-2"><button onClick={() => toggleEaten(meal.id)} className={cx("start-primary", eaten && "!bg-[#6E9084]")}>{eaten ? <><Icon name="check" size={17} /> Logged</> : "I ate this"}</button><button onClick={swap} className="start-secondary"><Icon name="swap" size={16} /> Swap</button></div></BottomSheet>;
+  const custom = state.customMeals.find((item) => item.id === meal.id);
+  return <BottomSheet close={close} title={meal.name}><div className="flex flex-wrap gap-2"><span className="detail-pill">{meal.type}</span><span className="detail-pill"><Icon name="clock" size={13} /> {meal.prepMinutes} min</span><span className="detail-pill">{macros.protein}g protein</span>{!state.hideCalories && <span className="detail-pill">{macros.calories} cal</span>}</div><p className="mt-4 text-sm leading-6 text-[#68736F]">{meal.why}</p>{custom && <div className="mt-4 rounded-[18px] border border-[#DCE7E0] bg-[#ECF3EE] p-3"><p className="text-[10px] font-extrabold uppercase tracking-[.1em] text-[#547067]">{custom.sourceLabel}</p>{custom.source === "estimated" && custom.calorieRange && custom.proteinRange ? <p className="mt-1 text-xs leading-5 text-[#62736D]">Coach estimated roughly {custom.calorieRange.min}–{custom.calorieRange.max} calories and {custom.proteinRange.min}–{custom.proteinRange.max}g protein. Package or restaurant nutrition can replace this anytime.</p> : <p className="mt-1 text-xs leading-5 text-[#62736D]">{custom.source === "user" ? "These totals came from the nutrition values you supplied." : "These totals use the verified nutrition source shown above."}</p>}</div>}<p className="section-label mt-5">INGREDIENTS</p><div className="mt-2 divide-y divide-[#EEE9E1]">{meal.ingredients.map((ingredient) => <div key={ingredient.name} className="flex items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{ingredient.name}</p><p className="mt-0.5 text-xs text-[#7D8582]">{ingredient.amount}</p></div><div className="text-right text-xs text-[#68736F]"><p>{ingredient.protein}g protein</p>{!state.hideCalories && <p className="mt-0.5">{ingredient.calories} cal</p>}</div></div>)}</div><div className="mt-5 grid grid-cols-2 gap-2"><button onClick={() => toggleEaten(meal.id)} className={cx("start-primary", eaten && "!bg-[#6E9084]")}>{eaten ? <><Icon name="check" size={17} /> Logged</> : "I ate this"}</button><button onClick={swap} className="start-secondary"><Icon name="swap" size={16} /> Swap</button></div></BottomSheet>;
 }
 
-function MealSwap({ source, state, ranked, excludeIds, close, choose }: { source: Meal; state: AppState; ranked: Meal[]; excludeIds: string[]; close: () => void; choose: (meal: Meal) => void }) {
+function MealSwap({ source, state, ranked, excludeIds, close, choose, chooseCustom }: { source: Meal; state: AppState; ranked: Meal[]; excludeIds: string[]; close: () => void; choose: (meal: Meal) => void; chooseCustom: (description: string, calories: number | null, protein: number | null, remember: boolean) => Promise<string | null> }) {
   const [query, setQuery] = useState("");
+  const [customDescription, setCustomDescription] = useState("");
+  const [customCalories, setCustomCalories] = useState("");
+  const [customProtein, setCustomProtein] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [customBusy, setCustomBusy] = useState(false);
+  const [customError, setCustomError] = useState("");
   const normalized = query.trim().toLowerCase();
   const eligible = ranked.filter((meal) => meal.id !== source.id && !excludeIds.includes(meal.id));
   const searched = normalized
@@ -860,7 +929,45 @@ function MealSwap({ source, state, ranked, excludeIds, close, choose }: { source
   const fallback = searched.filter((meal, index, array) => array.findIndex((candidate) => candidate.name.trim().toLowerCase() === meal.name.trim().toLowerCase()) === index);
   const options = (distinct.length ? distinct : fallback).slice(0, 6);
 
-  return <BottomSheet close={close} title={`Swap ${source.type.toLowerCase()}`}><p className="text-sm leading-6 text-[#68736F]">Search for what sounds better or choose a different option. Meals already in today’s plan are removed so you do not see duplicates.</p><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try: salmon, tacos, pasta, bowl..." className="mt-3 w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm outline-none focus:border-[#6E9084]" /><div className="mt-4 space-y-2.5">{options.map((meal) => { const macro = mealMacros(meal); return <button key={meal.id} onClick={() => choose(meal)} className="swap-option"><span><strong>{meal.name}</strong><small>{macro.protein}g protein · {meal.prepMinutes} min{state.hideCalories ? "" : ` · ${macro.calories} cal`}</small></span><Icon name="chevron" size={17} /></button>; })}{options.length === 0 && <InfoCard>{normalized ? "No audited meal in the current library matches that yet. Add it under ‘Want something else?’ and Coach can help find the closest direction." : "No non-duplicate replacement is available with the current hard exclusions. Try a search or tell Coach what you want instead."}</InfoCard>}</div></BottomSheet>;
+  async function submitCustom(event: FormEvent) {
+    event.preventDefault();
+    const description = customDescription.trim();
+    if (!description || customBusy) return;
+    setCustomBusy(true);
+    setCustomError("");
+    const calories = customCalories.trim() ? Number(customCalories) : null;
+    const protein = customProtein.trim() ? Number(customProtein) : null;
+    if ((calories !== null && (!Number.isFinite(calories) || calories < 0 || calories > 5000))
+      || (protein !== null && (!Number.isFinite(protein) || protein < 0 || protein > 500))) {
+      setCustomError("Use total meal values between 0–5,000 calories and 0–500g protein.");
+      setCustomBusy(false);
+      return;
+    }
+    const error = await chooseCustom(description, calories, protein, remember);
+    if (error) setCustomError(error);
+    setCustomBusy(false);
+  }
+
+  return <BottomSheet close={close} title={`Swap ${source.type.toLowerCase()}`}>
+    <p className="text-sm leading-6 text-[#68736F]">Use something you already eat, describe any new meal, or pick one of Start Here’s suggestions.</p>
+
+    <form onSubmit={submitCustom} className="custom-meal-card mt-4">
+      <div className="flex items-start gap-3"><span className="coach-mark"><Icon name="spark" size={14} /></span><div><p className="text-sm font-semibold">Use your own meal</p><p className="mt-1 text-xs leading-5 text-[#68736F]">Say it naturally: “3 Triple Zero Oikos yogurts” or “my usual turkey sandwich and an apple.”</p></div></div>
+      <label className="mt-3 block"><span className="sr-only">Describe your meal</span><textarea rows={3} value={customDescription} onChange={(event) => setCustomDescription(event.target.value)} placeholder="What do you actually want to eat?" className="custom-meal-input" /></label>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="start-field"><span>TOTAL CALORIES · OPTIONAL</span><input inputMode="numeric" type="number" min="0" max="5000" placeholder="Coach can estimate" value={customCalories} onChange={(event) => setCustomCalories(event.target.value)} /></label>
+        <label className="start-field"><span>TOTAL PROTEIN · OPTIONAL</span><input inputMode="numeric" type="number" min="0" max="500" placeholder="grams" value={customProtein} onChange={(event) => setCustomProtein(event.target.value)} /></label>
+      </div>
+      <button type="button" onClick={() => setRemember((value) => !value)} className="remember-row mt-3" aria-pressed={remember}><span className={cx("remember-check", remember && "remember-check-on")}>{remember && <Icon name="check" size={13} />}</span><span><strong>Remember this meal</strong><small>Let future plans learn from this choice.</small></span></button>
+      {customError && <p className="mt-3 rounded-xl bg-[#F7E9E7] px-3 py-2 text-xs leading-5 text-[#99514F]">{customError}</p>}
+      <button disabled={customBusy || !customDescription.trim()} type="submit" className="start-primary mt-3 w-full !min-h-12 text-sm disabled:cursor-not-allowed disabled:opacity-45">{customBusy ? "Building your meal…" : "Use this meal"}</button>
+      <p className="mt-2 text-[10px] leading-4 text-[#87908C]">If you leave nutrition blank, Coach estimates a range. Label values work offline and always override the estimate.</p>
+    </form>
+
+    <div className="my-5 flex items-center gap-3"><span className="h-px flex-1 bg-[#E6E0D6]" /><span className="text-[10px] font-extrabold tracking-[.12em] text-[#8A928F]">OR CHOOSE A SUGGESTION</span><span className="h-px flex-1 bg-[#E6E0D6]" /></div>
+    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search suggestions: salmon, tacos, pasta..." className="w-full rounded-2xl border border-[#E6E0D6] bg-white px-4 py-3 text-sm outline-none focus:border-[#6E9084]" />
+    <div className="mt-4 space-y-2.5">{options.map((meal) => { const macro = mealMacros(meal); return <button key={meal.id} onClick={() => choose(meal)} className="swap-option"><span><strong>{meal.name}</strong><small>{macro.protein}g protein · {meal.prepMinutes} min{state.hideCalories ? "" : ` · ${macro.calories} cal`}</small></span><Icon name="chevron" size={17} /></button>; })}{options.length === 0 && <InfoCard>No saved suggestion matches that search. Describe it above and Start Here will build it around you.</InfoCard>}</div>
+  </BottomSheet>;
 }
 
 function ProfileSheet({ state, targets, patch, cloud, close, reset }: { state: AppState; targets: ReturnType<typeof currentTargets>; patch: (update: Partial<AppState>) => void; cloud: ReturnType<typeof useStartHereCloud>; close: () => void; reset: () => void }) {
@@ -868,9 +975,9 @@ function ProfileSheet({ state, targets, patch, cloud, close, reset }: { state: A
     <div className="grid grid-cols-2 gap-3"><MiniCard label="Goal" value={GOAL_LABELS[state.goal]} /><MiniCard label="Starting target" value={state.hideCalories ? "Calories hidden" : `${targets.calories} cal`} /></div>
     <AccountSettings cloud={cloud} />
     <div className="mt-5 space-y-3">
-      <SettingRow title="Units" copy="Change how body weight, height, and gym loads are displayed." control={<select className="mini-select" value={state.unitSystem} onChange={(e) => patch({ unitSystem: e.target.value as AppState["unitSystem"] })}><option value="imperial">Imperial</option><option value="metric">Metric</option></select>} />
+      <SettingRow title="Units" copy="Change how body weight, height, and gym loads are displayed." control={<AppSelect compact label="Units" value={state.unitSystem} options={[{ value: "imperial", label: "Imperial" }, { value: "metric", label: "Metric" }]} onChange={(unitSystem) => patch({ unitSystem })} />} />
       <SettingRow title="Hide calories" copy="Meals and protein stay visible." control={<button onClick={() => patch({ hideCalories: !state.hideCalories })} className={cx("toggle", state.hideCalories && "toggle-on")}><span /></button>} />
-      <SettingRow title="Detail level" copy="Change how much information appears on normal screens." control={<select className="mini-select" value={state.detailLevel} onChange={(e) => patch({ detailLevel: e.target.value as AppState["detailLevel"] })}><option value="simple">Simple</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select>} />
+      <SettingRow title="Detail level" copy="Change how much information appears on normal screens." control={<AppSelect compact label="Detail level" value={state.detailLevel} options={[{ value: "simple", label: "Simple" }, { value: "standard", label: "Standard" }, { value: "detailed", label: "Detailed" }]} onChange={(detailLevel) => patch({ detailLevel })} />} />
       <SettingRow title="Grocery & prep" copy="Keep prep tools available under Eat." control={<button onClick={() => patch({ showPrep: !state.showPrep })} className={cx("toggle", state.showPrep && "toggle-on")}><span /></button>} />
     </div>
 

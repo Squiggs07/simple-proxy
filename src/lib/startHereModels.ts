@@ -14,6 +14,7 @@ export type AppTab = "today" | "eat" | "train" | "progress" | "coach";
 export type Readiness = "low" | "normal" | "high";
 export type AdaptationKind = "recovery" | "schedule" | "nutrition" | "behavior";
 export type WeekTrainingExceptionKind = "move" | "skip";
+export type CustomMealType = "Breakfast" | "Lunch" | "Dinner" | "Snack";
 
 export interface TodayOverride {
   minutes: number | null;
@@ -71,6 +72,37 @@ export interface MealSwapLog {
   date: string;
   sourceMealId: string;
   chosenMealId: string;
+}
+
+export interface CustomMealMemory {
+  id: string;
+  name: string;
+  description: string;
+  type: CustomMealType;
+  calories: number;
+  protein: number;
+  source: ExternalFoodLog["source"];
+  sourceLabel: string;
+  calorieRange: { min: number; max: number } | null;
+  proteinRange: { min: number; max: number } | null;
+  remember: boolean;
+  firstChosenOn: string;
+  lastChosenOn: string;
+  firstChosenAt: string;
+  lastChosenAt: string;
+  timesChosen: number;
+}
+
+export interface PreferenceEvidence {
+  id: string;
+  domain: "meal" | "training" | "schedule";
+  kind: "chosen" | "rejected" | "portion" | "constraint";
+  subjectId: string;
+  label: string;
+  context: string;
+  source: "explicit" | "observed";
+  confidence: "low" | "medium" | "high";
+  observedAt: string;
 }
 
 export interface ExerciseSwapLog {
@@ -156,6 +188,8 @@ export interface AppState {
   mealLogs: MealLog[];
   externalFoodLogs: ExternalFoodLog[];
   mealSwapLogs: MealSwapLog[];
+  customMeals: CustomMealMemory[];
+  preferenceEvidence: PreferenceEvidence[];
   exerciseSwapLogs: ExerciseSwapLog[];
   readinessCheckIns: ReadinessCheckIn[];
   adaptationEvents: AdaptationEvent[];
@@ -170,7 +204,7 @@ export interface AppState {
 }
 
 export const INITIAL_STATE: AppState = {
-  version: 10,
+  version: 11,
   onboarded: false,
   currentDay: "",
   unitSystem: "imperial",
@@ -222,6 +256,8 @@ export const INITIAL_STATE: AppState = {
   mealLogs: [],
   externalFoodLogs: [],
   mealSwapLogs: [],
+  customMeals: [],
+  preferenceEvidence: [],
   exerciseSwapLogs: [],
   readinessCheckIns: [],
   adaptationEvents: [],
@@ -263,6 +299,8 @@ export function mergeStoredState(value: unknown): AppState {
     mealLogs: Array.isArray(stored.mealLogs) ? stored.mealLogs : [],
     externalFoodLogs: Array.isArray(stored.externalFoodLogs) ? stored.externalFoodLogs : [],
     mealSwapLogs: Array.isArray(stored.mealSwapLogs) ? stored.mealSwapLogs : [],
+    customMeals: Array.isArray(stored.customMeals) ? stored.customMeals : [],
+    preferenceEvidence: Array.isArray(stored.preferenceEvidence) ? stored.preferenceEvidence : [],
     exerciseSwapLogs: Array.isArray(stored.exerciseSwapLogs) ? stored.exerciseSwapLogs : [],
     readinessCheckIns: Array.isArray(stored.readinessCheckIns) ? stored.readinessCheckIns : [],
     adaptationEvents: Array.isArray(stored.adaptationEvents) ? stored.adaptationEvents : [],
@@ -276,6 +314,6 @@ export function mergeStoredState(value: unknown): AppState {
       ? stored.coachHistory
       : INITIAL_STATE.coachHistory,
     currentDay: typeof stored.currentDay === "string" ? stored.currentDay : "",
-    version: 10,
+    version: 11,
   };
 }

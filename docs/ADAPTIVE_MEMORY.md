@@ -26,6 +26,12 @@ The next expansion should add append-only, typed evidence—not free-form AI-aut
 - stable food, schedule, and training preferences inferred from repeated behavior;
 - the source, confidence, first/last observed time, and user confirmation for each learned preference.
 
+## Current personal-meal loop
+
+Custom meal swaps are first-class plan data in state version 11. A user can describe any meal in normal language, optionally provide label totals, and decide whether Start Here should reuse it. Coach may interpret unknown nutrition, but the client stores the normalized calories, protein, honest estimate ranges, and source before the deterministic planner applies the swap.
+
+Every accepted choice adds typed preference evidence and a swap log. Remembered custom meals enter the same ranking system as the audited starter library; repeated choices increase their behavioral score and are summarized back to Coach as observed tendencies. One-day custom choices remain usable in the current plan without entering future automatic rotation. This keeps adaptation explainable and reversible instead of allowing the model to silently invent profile facts.
+
 For questions such as “How would this Chick-fil-A order fit today?”, the intended flow is:
 
 1. Resolve current menu nutrition from a verified, current source.
